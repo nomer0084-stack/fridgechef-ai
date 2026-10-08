@@ -339,8 +339,8 @@ jobs:
         import android.provider.MediaStore
         import android.speech.RecognizerIntent
         import android.speech.tts.TextToSpeech
-import java.util.Locale
-import android.widget.Toast
+        import java.util.Locale
+        import android.widget.Toast
         import androidx.activity.ComponentActivity
         import androidx.activity.compose.rememberLauncherForActivityResult
         import androidx.activity.compose.setContent
@@ -486,8 +486,7 @@ import android.widget.Toast
                     val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
                     if (!spokenText.isNullOrBlank()) {
                         // Split by punctuation, comma, "и", "а также", newline
-                        val parts = spokenText.split(",", " и ", " а также ", "
-", ";")
+                        val parts = spokenText.split(",", " и ", " а также ").map { it.trim() }.filter { it.isNotBlank() }
                             .map { it.trim() }
                             .filter { it.isNotBlank() }
                         parts.forEach { phrase ->
