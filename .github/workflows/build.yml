@@ -338,7 +338,9 @@ jobs:
         import android.os.Bundle
         import android.provider.MediaStore
         import android.speech.RecognizerIntent
-        import android.widget.Toast
+        import android.speech.tts.TextToSpeech
+import java.util.Locale
+import android.widget.Toast
         import androidx.activity.ComponentActivity
         import androidx.activity.compose.rememberLauncherForActivityResult
         import androidx.activity.compose.setContent
@@ -894,6 +896,27 @@ jobs:
 
         @Composable
         fun RecipesView(recipes: List<Recipe>, detectedProducts: List<String>, isLoading: Boolean) {
+            val context = LocalContext.current
+            var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+            var speakingTitle by remember { mutableStateOf<String?>(null) }
+
+            DisposableEffect(context) {
+                var textToSpeech: TextToSpeech? = null
+                textToSpeech = TextToSpeech(context) { status ->
+                    if (status == TextToSpeech.SUCCESS) {
+                        textToSpeech?.language = Locale("ru")
+                        textToSpeech?.setPitch(1.05f)
+                        textToSpeech?.setSpeechRate(0.95f)
+                    }
+                }
+                tts = textToSpeech
+
+                onDispose {
+                    textToSpeech?.stop()
+                    textToSpeech?.shutdown()
+                }
+            }
+
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -944,6 +967,32 @@ jobs:
                                 Text("Приготовление:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 recipe.steps.forEachIndexed { i, step ->
                                     Text("${i + 1}. $step", fontSize = 13.sp, modifier = Modifier.padding(vertical = 1.dp))
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                val isSpeaking = speakingTitle == recipe.title
+                                Button(
+                                    onClick = {
+                                        if (isSpeaking) {
+                                            tts?.stop()
+                                            speakingTitle = null
+                                        } else {
+                                            tts?.stop()
+                                            val speech = "Рецепт: " + recipe.title + ". Время: " + recipe.timeMinutes + " минут. Ингредиенты: " + recipe.ingredientsUsed.joinToString(", ") + ". " + recipe.steps.mapIndexed { idx, s -> "Шаг " + (idx + 1) + ": " + s + ". " }.joinToString(" ")
+                                            tts?.speak(speech, TextToSpeech.QUEUE_FLUSH, null, recipe.title)
+                                            speakingTitle = recipe.title
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (isSpeaking) Color(0xFFD32F2F) else BrandYellow),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                                ) {
+                                    Text(
+                                        if (isSpeaking) "⏹️ Остановить озвучку" else "🔊 Озвучить рецепт голосом",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSpeaking) Color.White else Color.Black
+                                    )
                                 }
                             }
                         }
