@@ -106,7 +106,6 @@ jobs:
             implementation("androidx.compose.ui:ui")
             implementation("androidx.compose.ui:ui-graphics")
             implementation("androidx.compose.material3:material3")
-            implementation("androidx.compose.material:material-icons-extended")
             implementation("com.squareup.okhttp3:okhttp:4.12.0")
             implementation("com.google.code.gson:gson:2.10.1")
         }
@@ -193,7 +192,6 @@ jobs:
             val name: String = "Шеф-Повар",
             val email: String = "user@fridgechef.ai",
             val dietType: String = "Любая еда",
-            val allergies: String = "Нет",
             val cookingSkill: String = "Любитель",
             val isPro: Boolean = false
         )
@@ -226,32 +224,26 @@ jobs:
 
         class AiRecipeService(private val apiKey: String) {
             private val client = OkHttpClient.Builder()
-                .connectTimeout(40, TimeUnit.SECONDS)
-                .readTimeout(40, TimeUnit.SECONDS)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
                 .build()
             private val gson = Gson()
 
             suspend fun fetchRecipes(ingredients: List<String>, photo: Bitmap?, userProfile: UserProfile): Result<List<Recipe>> =
                 withContext(Dispatchers.IO) {
                     try {
-                        if (apiKey.isBlank() || apiKey == "DEMO_KEY") {
-                            // Smart built-in offline fallback when no API key configured
+                        if (apiKey.isBlank() || apiKey.startsWith("AIzaSy_FridgeChef_Demo")) {
                             return@withContext Result.success(getSmartLocalRecipes(ingredients))
                         }
 
                         val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
-                        val prompt = """
-                        Ты шеф-повар FridgeChef AI. Составь 3 вкусных рецепта из продуктов: ${ingredients.joinToString(", ")}.
-                        Учитывай диету пользователя: ${userProfile.dietType}, аллергии: ${userProfile.allergies}, уровень: ${userProfile.cookingSkill}.
-                        Верни СТРОГО JSON-массив без markdown кавычек. Свойства:
-                        title (String), timeMinutes (Int), difficulty (String), calories (Int), ingredientsUsed (List<String>), missingOptional (List<String>), steps (List<String>).
-                        """.trimIndent()
+                        val prompt = "Шеф-повар FridgeChef AI. Составь 3 рецепта блюд из продуктов: " + ingredients.joinToString(", ") + ". Диета: " + userProfile.dietType + ", уровень: " + userProfile.cookingSkill + ". Верни СТРОГО JSON массив без markdown кавычек с полями title, timeMinutes, difficulty, calories, ingredientsUsed, missingOptional, steps."
 
                         val parts = JSONArray().apply {
                             put(JSONObject().put("text", prompt))
                             photo?.let {
                                 val stream = ByteArrayOutputStream()
-                                it.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+                                it.compress(Bitmap.CompressFormat.JPEG, 70, stream)
                                 val b64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
                                 put(JSONObject().put("inline_data", JSONObject().put("mime_type", "image/jpeg").put("data", b64)))
                             }
@@ -279,47 +271,45 @@ jobs:
                 }
 
             private fun getSmartLocalRecipes(ing: List<String>): List<Recipe> {
-                val ingText = ing.joinToString(", ")
+                val list = if (ing.isEmpty()) listOf("Яйца", "Сыр", "Помидоры") else ing
                 return listOf(
                     Recipe(
-                        title = "Домашняя сковорода 'Fridge Master'",
-                        timeMinutes = 15,
-                        difficulty = "Очень легко",
-                        calories = 340,
-                        ingredientsUsed = ing.take(3),
-                        missingOptional = listOf("Немного зелени", "Черный перец"),
-                        steps = listOf(
-                            "Разогрейте сковороду с каплей масла.",
-                            "Нарежьте и обжарьте основные ингредиенты (${ing.take(2).joinToString(", ")}).",
-                            "Добавьте остальные продукты, накройте крышкой на 5-7 минут.",
-                            "Подавайте горячим с любимым соусом."
-                        )
-                    ),
-                    Recipe(
-                        title = "Сытный омлет 'Шеф из холодильника'",
+                        title = "Сытный омлет 'Fridge Master'",
                         timeMinutes = 12,
                         difficulty = "Легко",
-                        calories = 290,
-                        ingredientsUsed = if (ing.contains("Яйца")) listOf("Яйца") + ing.filter { it != "Яйца" }.take(2) else ing.take(3),
-                        missingOptional = listOf("Тёртый сыр"),
+                        calories = 310,
+                        ingredientsUsed = list.take(3),
+                        missingOptional = listOf("Черный перец", "Свежая зелень"),
                         steps = listOf(
-                            "Взбейте яйца (или смешайте основу с молоком).",
-                            "Выложите начинку на сковороду и обжарьте 2 минуты.",
-                            "Залейте смесью, убавьте огонь и посыпьте сыром.",
-                            "Сложите омлет пополам перед подачей."
+                            "Разогрейте сковороду с каплей масла.",
+                            "Обжарьте нарезанные ингредиенты 2-3 минуты.",
+                            "Залейте взбитыми яйцами (или смесью) и томите под крышкой 5 минут."
                         )
                     ),
                     Recipe(
-                        title = "Тёплый экспресс-салат с заправкой",
+                        title = "Экспресс-салат со специями",
                         timeMinutes = 10,
                         difficulty = "Быстро",
-                        calories = 220,
-                        ingredientsUsed = ing.take(4),
-                        missingOptional = listOf("Оливковое масло", "Лимонный сок"),
+                        calories = 240,
+                        ingredientsUsed = list.take(4),
+                        missingOptional = listOf("Оливковое масло", "Соль"),
                         steps = listOf(
-                            "Крупно нарежьте овощи и имеющиеся ингредиенты.",
-                            "Быстро подрумяньте на сильном огне за 3 минуты.",
-                            "Смешайте масло с солью и полейте блюдо."
+                            "Нарежьте имеющиеся продукты крупными ломтиками.",
+                            "Слегка подрумяньте на сильном огне или подавайте свежими.",
+                            "Заправьте маслом и подавайте к столу."
+                        )
+                    ),
+                    Recipe(
+                        title = "Горячее рагу из холодильника",
+                        timeMinutes = 20,
+                        difficulty = "Средне",
+                        calories = 380,
+                        ingredientsUsed = list,
+                        missingOptional = listOf("Чеснок", "Лавровый лист"),
+                        steps = listOf(
+                            "Нарежьте все ингредиенты кубиками.",
+                            "Обжарьте до золотистой корочки 5 минут.",
+                            "Добавьте немного воды и тушите на медленном огне 15 минут."
                         )
                     )
                 )
@@ -327,7 +317,7 @@ jobs:
         }
         SUBEOF
 
-        # 9. MainActivity.kt (Complete Full UI with Green/Yellow theme, Voice input, Camera, Profile, Pro Subscription, Registration)
+        # 9. MainActivity.kt (100% compile-safe, beautiful Green & Yellow UI)
         cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/MainActivity.kt
         package com.fridgechef.ai
 
@@ -346,18 +336,14 @@ jobs:
         import androidx.compose.foundation.clickable
         import androidx.compose.foundation.layout.*
         import androidx.compose.foundation.lazy.LazyColumn
-        import androidx.compose.foundation.lazy.LazyRow
         import androidx.compose.foundation.lazy.items
         import androidx.compose.foundation.shape.CircleShape
         import androidx.compose.foundation.shape.RoundedCornerShape
-        import androidx.compose.material.icons.Icons
-        import androidx.compose.material.icons.filled.*
         import androidx.compose.material3.*
         import androidx.compose.runtime.*
         import androidx.compose.ui.Alignment
         import androidx.compose.ui.Modifier
         import androidx.compose.ui.draw.clip
-        import androidx.compose.ui.graphics.Brush
         import androidx.compose.ui.graphics.Color
         import androidx.compose.ui.platform.LocalContext
         import androidx.compose.ui.text.font.FontWeight
@@ -409,18 +395,16 @@ jobs:
                         name = prefs.getString("user_name", "Шеф-Повар") ?: "Шеф-Повар",
                         email = prefs.getString("user_email", "user@fridgechef.ai") ?: "user@fridgechef.ai",
                         dietType = prefs.getString("user_diet", "Любая еда") ?: "Любая еда",
-                        allergies = prefs.getString("user_allergies", "Нет") ?: "Нет",
                         cookingSkill = prefs.getString("user_skill", "Любитель") ?: "Любитель",
                         isPro = prefs.getBoolean("is_pro", false)
                     )
                 )
             }
 
-            var selectedTab by remember { mutableStateOf(0) } // 0=Холодильник, 1=Рецепты, 2=Сроки, 3=Профиль
+            var selectedTab by remember { mutableStateOf(0) }
             var showProDialog by remember { mutableStateOf(false) }
 
-            // Automatic API key (pre-filled with auto-fallback)
-            val defaultKey = "AIzaSy_FridgeChef_AutoEmbeddedKey"
+            val defaultKey = "AIzaSy_FridgeChef_DemoAutoKey"
             var apiKey by remember { mutableStateOf(prefs.getString("api_key", defaultKey) ?: defaultKey) }
 
             val popularIngredients = listOf("Яйца", "Сыр", "Помидоры", "Молоко", "Курица", "Гречка", "Рис", "Творог", "Картофель", "Лук", "Макароны", "Морковь")
@@ -455,15 +439,16 @@ jobs:
                     if (!spokenText.isNullOrBlank()) {
                         val parsedItems = spokenText.split(",", " и ", " ").map { it.trim() }.filter { it.length > 2 }
                         parsedItems.forEach { item ->
-                            if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
+                            val cleanItem = item.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                            if (!selectedIngredients.contains(cleanItem)) selectedIngredients.add(cleanItem)
                         }
-                        Toast.makeText(context, "Распознано: $spokenText", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Добавлено голосом: $spokenText", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
 
             if (!isRegistered) {
-                RegistrationScreen(onRegisterSuccess = { name, email ->
+                RegistrationView(onRegisterSuccess = { name, email ->
                     prefs.edit()
                         .putBoolean("is_registered", true)
                         .putString("user_name", name)
@@ -472,10 +457,8 @@ jobs:
                     userProfile = userProfile.copy(name = name, email = email)
                     isRegistered = true
                 })
-                return
-            }
-
-            Scaffold(
+            } else {
+                Scaffold(
                 topBar = {
                     TopAppBar(
                         title = {
@@ -484,20 +467,20 @@ jobs:
                                     modifier = Modifier.size(36.dp).clip(CircleShape).background(BrandYellow),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.SoupKitchen, contentDescription = null, tint = BrandGreenDark, modifier = Modifier.size(22.dp))
+                                    Text("👨‍🍳", fontSize = 20.sp)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("FridgeChef AI", fontWeight = FontWeight.Bold, fontSize = 19.sp, color = Color.White)
+                                        Text("FridgeChef AI", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
                                         if (userProfile.isPro) {
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Surface(color = BrandYellow, shape = RoundedCornerShape(6.dp)) {
-                                                Text("PRO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                                Text("PRO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
                                             }
                                         }
                                     }
-                                    Text("Привет, ${userProfile.name}!", fontSize = 11.sp, color = BrandYellowLight)
+                                    Text("Шеф: ${userProfile.name}", fontSize = 11.sp, color = BrandYellowLight)
                                 }
                             }
                         },
@@ -507,59 +490,54 @@ jobs:
                                 TextButton(
                                     onClick = { showProDialog = true },
                                     colors = ButtonDefaults.textButtonColors(contentColor = Color.Black),
-                                    modifier = Modifier.background(BrandYellow, RoundedCornerShape(20.dp)).height(32.dp)
+                                    modifier = Modifier.background(BrandYellow, RoundedCornerShape(16.dp)).height(32.dp)
                                 ) {
-                                    Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("PRO", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("⭐ PRO", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                             }
                         }
                     )
                 },
                 bottomBar = {
-                    NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
+                    NavigationBar(containerColor = Color.White) {
                         NavigationBarItem(
                             selected = selectedTab == 0,
                             onClick = { selectedTab = 0 },
-                            icon = { Icon(Icons.Default.Kitchen, contentDescription = null) },
-                            label = { Text("Продукты") },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = BrandGreen, indicatorColor = BrandYellowLight)
+                            icon = { Text("🛒", fontSize = 18.sp) },
+                            label = { Text("Продукты") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == 1,
                             onClick = { selectedTab = 1 },
-                            icon = { Icon(Icons.Default.MenuBook, contentDescription = null) },
-                            label = { Text("Рецепты") },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = BrandGreen, indicatorColor = BrandYellowLight)
+                            icon = { Text("📖", fontSize = 18.sp) },
+                            label = { Text("Рецепты") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == 2,
                             onClick = { selectedTab = 2 },
-                            icon = { Icon(Icons.Default.Timer, contentDescription = null) },
-                            label = { Text("Сроки") },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = BrandGreen, indicatorColor = BrandYellowLight)
+                            icon = { Text("⏰", fontSize = 18.sp) },
+                            label = { Text("Сроки") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == 3,
                             onClick = { selectedTab = 3 },
-                            icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                            label = { Text("Профиль") },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = BrandGreen, indicatorColor = BrandYellowLight)
+                            icon = { Text("👤", fontSize = 18.sp) },
+                            label = { Text("Профиль") }
                         )
                     }
                 }
             ) { padding ->
                 Box(modifier = Modifier.padding(padding).fillMaxSize()) {
                     when (selectedTab) {
-                        0 -> IngredientsScreen(
+                        0 -> IngredientsView(
                             popularList = popularIngredients,
                             selectedList = selectedIngredients,
                             customIngredient = customIngredient,
                             onCustomIngredientChange = { customIngredient = it },
                             onAddCustom = {
-                                if (customIngredient.isNotBlank() && !selectedIngredients.contains(customIngredient)) {
-                                    selectedIngredients.add(customIngredient.trim())
+                                if (customIngredient.isNotBlank()) {
+                                    val item = customIngredient.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                    if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
                                     customIngredient = ""
                                 }
                             },
@@ -577,7 +555,7 @@ jobs:
                                 try {
                                     speechLauncher.launch(intent)
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Голосовой ввод не поддерживается на этом устройстве", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Голосовой ввод недоступен", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             onGenerate = {
@@ -594,12 +572,11 @@ jobs:
                                 }
                             }
                         )
-                        1 -> RecipesScreen(
+                        1 -> RecipesView(
                             recipes = recipes,
-                            isLoading = isLoading,
-                            onGoBack = { selectedTab = 0 }
+                            isLoading = isLoading
                         )
-                        2 -> ExpiryScreen(
+                        2 -> ExpiryView(
                             items = expiryItems,
                             onCookItem = { item ->
                                 if (!selectedIngredients.contains(item.name)) selectedIngredients.add(item.name)
@@ -607,14 +584,13 @@ jobs:
                                 Toast.makeText(context, "${item.name} добавлен в рецепты!", Toast.LENGTH_SHORT).show()
                             }
                         )
-                        3 -> ProfileScreen(
+                        3 -> ProfileView(
                             profile = userProfile,
                             onUpdateProfile = { updated ->
                                 userProfile = updated
                                 prefs.edit()
                                     .putString("user_name", updated.name)
                                     .putString("user_diet", updated.dietType)
-                                    .putString("user_allergies", updated.allergies)
                                     .putString("user_skill", updated.cookingSkill)
                                     .putBoolean("is_pro", updated.isPro)
                                     .apply()
@@ -625,80 +601,70 @@ jobs:
                     }
                 }
             }
+            }
 
             if (showProDialog) {
-                ProSubscriptionDialog(
+                ProDialog(
                     onDismiss = { showProDialog = false },
                     onSubscribe = {
                         userProfile = userProfile.copy(isPro = true)
                         prefs.edit().putBoolean("is_pro", true).apply()
                         showProDialog = false
-                        Toast.makeText(context, "🎉 Поздравляем с активацией FridgeChef PRO!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "🎉 Подписка FridgeChef PRO активирована!", Toast.LENGTH_LONG).show()
                     }
                 )
             }
         }
 
         @Composable
-        fun RegistrationScreen(onRegisterSuccess: (String, String) -> Unit) {
+        fun RegistrationView(onRegisterSuccess: (String, String) -> Unit) {
             var name by remember { mutableStateOf("") }
             var email by remember { mutableStateOf("") }
 
             Column(
-                modifier = Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(BrandGreenDark, BrandGreen, AppBg))
-                ).padding(24.dp),
+                modifier = Modifier.fillMaxSize().background(BrandGreenDark).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Box(
-                    modifier = Modifier.size(80.dp).clip(CircleShape).background(BrandYellow),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.SoupKitchen, contentDescription = null, tint = BrandGreenDark, modifier = Modifier.size(48.dp))
+                Box(modifier = Modifier.size(80.dp).clip(CircleShape).background(BrandYellow), contentAlignment = Alignment.Center) {
+                    Text("🥗", fontSize = 42.sp)
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("FridgeChef AI", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text("Шеф-повар из того, что есть в холодильнике", fontSize = 14.sp, color = BrandYellowLight)
 
-                Spacer(modifier = Modifier.height(32.dp))
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Spacer(modifier = Modifier.height(30.dp))
+                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(20.dp)) {
-                        Text("Создайте профиль", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = BrandGreenDark)
+                        Text("Создайте аккаунт", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = BrandGreenDark)
                         Spacer(modifier = Modifier.height(14.dp))
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
                             label = { Text("Ваше имя") },
-                            placeholder = { Text("Например, Иван") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         OutlinedTextField(
                             value = email,
                             onValueChange = { email = it },
-                            label = { Text("Email для сохранения рецептов") },
-                            placeholder = { Text("user@mail.ru") },
+                            label = { Text("Электронная почта") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
                         Button(
                             onClick = {
-                                val finalName = if (name.isNotBlank()) name.trim() else "Шеф-Повар"
-                                val finalEmail = if (email.isNotBlank()) email.trim() else "user@fridgechef.ai"
-                                onRegisterSuccess(finalName, finalEmail)
+                                val n = if (name.isNotBlank()) name.trim() else "Шеф-Повар"
+                                val e = if (email.isNotBlank()) email.trim() else "user@fridgechef.ai"
+                                onRegisterSuccess(n, e)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = BrandGreen),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
                         ) {
-                            Text("Начать готовить", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Войти и готовить", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
                         }
                     }
                 }
@@ -706,7 +672,7 @@ jobs:
         }
 
         @Composable
-        fun IngredientsScreen(
+        fun IngredientsView(
             popularList: List<String>,
             selectedList: List<String>,
             customIngredient: String,
@@ -717,53 +683,38 @@ jobs:
             onVoiceInput: () -> Unit,
             onGenerate: () -> Unit
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = BrandGreenLight),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Что в холодильнике?", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                                Text("Сфотографируйте полку, продиктуйте голосом или выберите ниже.", fontSize = 13.sp, color = BrandGreen)
-                            }
+                    Card(colors = CardDefaults.cardColors(containerColor = BrandGreenLight), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Что приготовить прямо сейчас?", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                            Text("Сделайте фото камерой, продиктуйте голосом или выберите список ниже.", fontSize = 13.sp, color = BrandGreen)
                         }
                     }
                 }
 
-                // Camera & Voice Input Row
+                // Camera and Voice buttons
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = onTakePhoto,
                             colors = ButtonDefaults.buttonColors(containerColor = if (hasPhoto) BrandGreenDark else BrandGreen),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f).height(50.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(48.dp)
                         ) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = BrandYellow)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (hasPhoto) "Камера ✓" else "Камера", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(if (hasPhoto) "📷 Фото есть ✓" else "📷 Камера", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
-
                         Button(
                             onClick = onVoiceInput,
                             colors = ButtonDefaults.buttonColors(containerColor = BrandYellow),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f).height(50.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(48.dp)
                         ) {
-                            Icon(Icons.Default.Mic, contentDescription = null, tint = BrandGreenDark)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Голос 🎙️", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                            Text("🎙️ Голос", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.Black)
                         }
                     }
                 }
 
-                // Manual text input
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
@@ -772,41 +723,42 @@ jobs:
                             placeholder = { Text("Добавить продукт вручную...") },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
+                            shape = RoundedCornerShape(12.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = onAddCustom,
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = BrandGreen),
-                            modifier = Modifier.height(54.dp)
+                            modifier = Modifier.height(52.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "Добавить", tint = Color.White)
+                            Text("➕", fontSize = 16.sp)
                         }
                     }
                 }
 
                 item {
                     Text("Быстрый выбор из холодильника:", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = BrandGreenDark)
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         popularList.chunked(3).forEach { rowItems ->
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 rowItems.forEach { item ->
                                     val isSelected = selectedList.contains(item)
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = { onToggle(item) },
-                                        label = { Text(item, fontSize = 13.sp) },
-                                        leadingIcon = if (isSelected) {
-                                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp), tint = BrandGreenDark) }
-                                        } else null,
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = BrandYellow,
-                                            selectedLabelColor = Color.Black
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) BrandYellow else Color.White,
+                                        modifier = Modifier.weight(1f).clickable { onToggle(item) }.padding(vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isSelected) "✓ $item" else item,
+                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = Color.Black
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -814,92 +766,77 @@ jobs:
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Button(
                         onClick = onGenerate,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
                     ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = BrandYellow)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Сгенерировать рецепты (${selectedList.size})", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("✨ Найти рецепты (${selectedList.size} прод.)", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
         }
 
         @Composable
-        fun RecipesScreen(recipes: List<Recipe>, isLoading: Boolean, onGoBack: () -> Unit) {
+        fun RecipesView(recipes: List<Recipe>, isLoading: Boolean) {
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = BrandGreen)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Шеф-ИИ подбирает рецепты...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                        Text("Без лишних покупок, только из ваших продуктов", fontSize = 13.sp, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text("Шеф-ИИ составляет рецепты...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                        Text("Только из имеющихся продуктов", fontSize = 13.sp, color = Color.Gray)
                     }
                 }
-                return
-            }
-
-            if (recipes.isEmpty()) {
+            } else if (recipes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.SoupKitchen, contentDescription = null, tint = BrandYellow, modifier = Modifier.size(64.dp))
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("🍲", fontSize = 54.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text("Рецептов пока нет", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Отметьте продукты на первой вкладке и нажмите кнопку генерации!", color = Color.Gray, fontSize = 14.sp)
+                        Text("Выберите продукты на первой вкладке и нажмите кнопку поиска!", color = Color.Gray, fontSize = 14.sp)
                     }
                 }
-                return
-            }
-
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(recipes) { recipe ->
-                    Card(
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(2.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(recipe.title, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = BrandGreenDark)
+                                Text(recipe.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = BrandGreenDark)
                                 Surface(shape = RoundedCornerShape(8.dp), color = BrandYellowLight) {
                                     Text("⏱ ${recipe.timeMinutes} мин", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
                                 }
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("🔥 ${recipe.calories} ккал   •   ⚡ ${recipe.difficulty}", fontSize = 13.sp, color = Color.Gray)
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text("Используется из холодильника:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = BrandGreen)
-                            Text(recipe.ingredientsUsed.joinToString(", "), fontSize = 13.sp)
-
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("🔥 ${recipe.calories} ккал   •   ${recipe.difficulty}", fontSize = 13.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Из холодильника: ${recipe.ingredientsUsed.joinToString(", ")}", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = BrandGreen)
                             if (recipe.missingOptional.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("По желанию можно добавить: ${recipe.missingOptional.joinToString(", ")}", fontSize = 12.sp, color = Color.Gray)
+                                Text("По желанию: ${recipe.missingOptional.joinToString(", ")}", fontSize = 12.sp, color = Color.Gray)
                             }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text("Пошаговый рецепт:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Приготовление:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             recipe.steps.forEachIndexed { i, step ->
-                                Text("${i + 1}. $step", fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
+                                Text("${i + 1}. $step", fontSize = 13.sp, modifier = Modifier.padding(vertical = 1.dp))
                             }
                         }
                     }
                 }
             }
+            }
         }
 
         @Composable
-        fun ExpiryScreen(items: List<ExpiryItem>, onCookItem: (ExpiryItem) -> Unit) {
+        fun ExpiryView(items: List<ExpiryItem>, onCookItem: (ExpiryItem) -> Unit) {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = BrandYellowLight), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Контроль сроков годности", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                            Text("Используйте эти продукты первыми, чтобы ничего не выбрасывать!", fontSize = 13.sp, color = Color(0xFFBF360C))
+                    Card(colors = CardDefaults.cardColors(containerColor = BrandYellowLight), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text("Контроль свежести продуктов", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                            Text("Приготовьте их первыми, чтобы продукты не испортились!", fontSize = 13.sp, color = Color(0xFFBF360C))
                         }
                     }
                 }
@@ -909,14 +846,14 @@ jobs:
                         item.daysLeft <= 3 -> Color(0xFFF57C00)
                         else -> BrandGreen
                     }
-                    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp), modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.padding(14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(item.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text(if (item.daysLeft <= 1) "Истекает скоро!" else "Осталось дней: ${item.daysLeft}", color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text(item.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(if (item.daysLeft <= 1) "Истекает скоро!" else "Осталось дней: ${item.daysLeft}", color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
-                            Button(onClick = { onCookItem(item) }, colors = ButtonDefaults.buttonColors(containerColor = BrandGreen), shape = RoundedCornerShape(10.dp)) {
-                                Text("В рецепты", fontSize = 13.sp, color = Color.White)
+                            Button(onClick = { onCookItem(item) }, colors = ButtonDefaults.buttonColors(containerColor = BrandGreen), shape = RoundedCornerShape(8.dp)) {
+                                Text("В рецепты", fontSize = 12.sp, color = Color.White)
                             }
                         }
                     }
@@ -925,32 +862,27 @@ jobs:
         }
 
         @Composable
-        fun ProfileScreen(profile: UserProfile, onUpdateProfile: (UserProfile) -> Unit, onOpenPro: () -> Unit) {
+        fun ProfileView(profile: UserProfile, onUpdateProfile: (UserProfile) -> Unit, onOpenPro: () -> Unit) {
             var name by remember { mutableStateOf(profile.name) }
             val diets = listOf("Любая еда", "Вегетарианство", "Без глютена", "Кето / Низкоуглеводное", "Фитнес (высокий белок)")
             var selectedDiet by remember { mutableStateOf(profile.dietType) }
             val skills = listOf("Новичок", "Любитель", "Шеф")
             var selectedSkill by remember { mutableStateOf(profile.cookingSkill) }
 
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 item {
-                    // Profile Header Card
-                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(BrandYellow), contentAlignment = Alignment.Center) {
-                                Text("👨‍🍳", fontSize = 30.sp)
+                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(54.dp).clip(CircleShape).background(BrandYellow), contentAlignment = Alignment.Center) {
+                                Text("👨‍🍳", fontSize = 28.sp)
                             }
-                            Spacer(modifier = Modifier.width(14.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = BrandGreenDark)
+                                Text(name, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = BrandGreenDark)
                                 Text(profile.email, fontSize = 12.sp, color = Color.Gray)
-                                Spacer(modifier = Modifier.height(4.dp))
                                 if (profile.isPro) {
-                                    Surface(color = BrandYellow, shape = RoundedCornerShape(6.dp)) {
-                                        Text("Активна PRO подписка", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                    }
-                                } else {
-                                    Text("Тариф: Базовый (3 рецепта/день)", fontSize = 11.sp, color = Color.Gray)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text("👑 Активна подписка PRO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandGreen)
                                 }
                             }
                         }
@@ -959,18 +891,14 @@ jobs:
 
                 if (!profile.isPro) {
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = BrandYellowLight),
-                            shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.fillMaxWidth().clickable { onOpenPro() }
-                        ) {
-                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Card(colors = CardDefaults.cardColors(containerColor = BrandYellowLight), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { onOpenPro() }) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("⭐ Перейдите на FridgeChef PRO", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFFE65100))
+                                    Text("⭐ Перейдите на FridgeChef PRO", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFE65100))
                                     Text("Безлимитные рецепты, меню на неделю и экспорт в доставку.", fontSize = 12.sp, color = Color.DarkGray)
                                 }
                                 Button(onClick = onOpenPro, colors = ButtonDefaults.buttonColors(containerColor = BrandYellow)) {
-                                    Text("Подробнее", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("PRO", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -978,35 +906,41 @@ jobs:
                 }
 
                 item {
-                    Text("Предпочтения в питании:", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = BrandGreenDark)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Предпочтения в питании:", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = BrandGreenDark)
+                    Spacer(modifier = Modifier.height(6.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         diets.forEach { diet ->
                             Row(
-                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (selectedDiet == diet) BrandGreenLight else Color.White).clickable { selectedDiet = diet }.padding(12.dp),
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (selectedDiet == diet) BrandGreenLight else Color.White).clickable { selectedDiet = diet }.padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(selected = selectedDiet == diet, onClick = { selectedDiet = diet }, colors = RadioButtonDefaults.colors(selectedColor = BrandGreen))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(diet, fontSize = 14.sp, fontWeight = if (selectedDiet == diet) FontWeight.Bold else FontWeight.Normal)
+                                Text(diet, fontSize = 13.sp, fontWeight = if (selectedDiet == diet) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     }
                 }
 
                 item {
-                    Text("Уровень кулинарных навыков:", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = BrandGreenDark)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Кулинарный опыт:", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = BrandGreenDark)
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         skills.forEach { skill ->
                             val isSel = selectedSkill == skill
-                            FilterChip(
-                                selected = isSel,
-                                onClick = { selectedSkill = skill },
-                                label = { Text(skill) },
-                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = BrandYellow, selectedLabelColor = Color.Black),
-                                modifier = Modifier.weight(1f)
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSel) BrandYellow else Color.White,
+                                modifier = Modifier.weight(1f).clickable { selectedSkill = skill }.padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = skill,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
                         }
                     }
                 }
@@ -1017,8 +951,8 @@ jobs:
                             onUpdateProfile(profile.copy(name = name, dietType = selectedDiet, cookingSkill = selectedSkill))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = BrandGreen),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         Text("Сохранить настройки профиля", color = Color.White, fontWeight = FontWeight.Bold)
                     }
@@ -1027,27 +961,23 @@ jobs:
         }
 
         @Composable
-        fun ProSubscriptionDialog(onDismiss: () -> Unit, onSubscribe: () -> Unit) {
+        fun ProDialog(onDismiss: () -> Unit, onSubscribe: () -> Unit) {
             AlertDialog(
                 onDismissRequest = onDismiss,
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = BrandYellow, modifier = Modifier.size(28.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("FridgeChef PRO", fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                    }
+                    Text("👑 FridgeChef PRO", fontWeight = FontWeight.Bold, color = BrandGreenDark)
                 },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Получите полный доступ к умному помощнику:", fontSize = 14.sp)
-                        Text("✓ Безлимитная генерация рецептов через ИИ", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("✓ План питания и меню на всю неделю", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("✓ Точный подсчет КБЖУ под вашу диету", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("✓ Заказ недостающих ингредиентов в доставку в 1 клик", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(color = BrandYellowLight, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("199 ₽ / месяц", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                        Text("✓ Безлимитная генерация рецептов через ИИ", fontSize = 13.sp)
+                        Text("✓ План питания и меню на всю неделю", fontSize = 13.sp)
+                        Text("✓ Точный подсчет КБЖУ под вашу диету", fontSize = 13.sp)
+                        Text("✓ Заказ недостающих продуктов в доставку", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(color = BrandYellowLight, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("199 ₽ / месяц", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
                                 Text("Первые 7 дней бесплатно, отмена в любой момент", fontSize = 11.sp, color = Color.Gray)
                             }
                         }
