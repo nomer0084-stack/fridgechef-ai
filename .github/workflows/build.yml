@@ -1,0 +1,378 @@
+name: Build FridgeChef AI APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Generate Android Project
+      run: |
+        mkdir -p app/src/main/java/com/fridgechef/ai/data
+        mkdir -p app/src/main/res/values
+
+        # 1. settings.gradle.kts
+        cat << 'SUBEOF' > settings.gradle.kts
+        pluginManagement {
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+        dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        rootProject.name = "FridgeChefAI"
+        include(":app")
+        SUBEOF
+
+        # 2. build.gradle.kts (Root)
+        cat << 'SUBEOF' > build.gradle.kts
+        plugins {
+            id("com.android.application") version "8.3.2" apply false
+            id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+        }
+        SUBEOF
+
+        # 3. gradle.properties
+        cat << 'SUBEOF' > gradle.properties
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        android.useAndroidX=true
+        android.nonTransitiveRClass=true
+        SUBEOF
+
+        # 4. app/build.gradle.kts
+        cat << 'SUBEOF' > app/build.gradle.kts
+        plugins {
+            id("com.android.application")
+            id("org.jetbrains.kotlin.android")
+        }
+
+        android {
+            namespace = "com.fridgechef.ai"
+            compileSdk = 34
+
+            defaultConfig {
+                applicationId = "com.fridgechef.ai"
+                minSdk = 24
+                targetSdk = 34
+                versionCode = 1
+                versionName = "1.0.0"
+            }
+
+            buildTypes {
+                release {
+                    isMinifyEnabled = false
+                    signingConfig = signingConfigs.getByName("debug")
+                }
+            }
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_1_8
+                targetCompatibility = JavaVersion.VERSION_1_8
+            }
+            kotlinOptions {
+                jvmTarget = "1.8"
+            }
+            buildFeatures {
+                compose = true
+            }
+            composeOptions {
+                kotlinCompilerExtensionVersion = "1.5.14"
+            }
+        }
+
+        dependencies {
+            implementation("androidx.core:core-ktx:1.13.1")
+            implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.0")
+            implementation("androidx.activity:activity-compose:1.9.0")
+            implementation(platform("androidx.compose:compose-bom:2024.05.00"))
+            implementation("androidx.compose.ui:ui")
+            implementation("androidx.compose.ui:ui-graphics")
+            implementation("androidx.compose.material3:material3")
+            implementation("com.squareup.okhttp3:okhttp:4.12.0")
+            implementation("com.google.code.gson:gson:2.10.1")
+        }
+        SUBEOF
+
+        # 5. AndroidManifest.xml
+        cat << 'SUBEOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.CAMERA" />
+            <application
+                android:allowBackup="true"
+                android:label="FridgeChef AI"
+                android:supportsRtl="true"
+                android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true"
+                    android:windowSoftInputMode="adjustResize">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        SUBEOF
+
+        # 6. Models.kt
+        cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/data/Models.kt
+        package com.fridgechef.ai.data
+
+        data class Recipe(
+            val title: String = "",
+            val timeMinutes: Int = 20,
+            val difficulty: String = "Легко",
+            val calories: Int = 300,
+            val ingredientsUsed: List<String> = emptyList(),
+            val steps: List<String> = emptyList()
+        )
+        SUBEOF
+
+        # 7. AiRecipeService.kt
+        cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/data/AiRecipeService.kt
+        package com.fridgechef.ai.data
+
+        import android.graphics.Bitmap
+        import android.util.Base64
+        import com.google.gson.Gson
+        import com.google.gson.reflect.TypeToken
+        import kotlinx.coroutines.Dispatchers
+        import kotlinx.coroutines.withContext
+        import okhttp3.MediaType.Companion.toMediaType
+        import okhttp3.OkHttpClient
+        import okhttp3.Request
+        import okhttp3.RequestBody.Companion.toRequestBody
+        import org.json.JSONArray
+        import org.json.JSONObject
+        import java.io.ByteArrayOutputStream
+        import java.util.concurrent.TimeUnit
+
+        class AiRecipeService(private val apiKey: String) {
+            private val client = OkHttpClient.Builder()
+                .connectTimeout(45, TimeUnit.SECONDS)
+                .readTimeout(45, TimeUnit.SECONDS)
+                .build()
+            private val gson = Gson()
+
+            suspend fun fetchRecipes(ingredients: List<String>, photo: Bitmap?): Result<List<Recipe>> =
+                withContext(Dispatchers.IO) {
+                    try {
+                        if (apiKey.isBlank()) {
+                            return@withContext Result.failure(Exception("Укажите Gemini API ключ в настройках."))
+                        }
+                        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+                        val prompt = "Действуй как шеф-повар FridgeChef AI. Составь 3 рецепта блюд из продуктов: " + ingredients.joinToString(", ") + ". Верни строго JSON массив объектов с полями title (String), timeMinutes (Int), difficulty (String), calories (Int), ingredientsUsed (List<String>), steps (List<String>)."
+                        val parts = JSONArray().apply {
+                            put(JSONObject().put("text", prompt))
+                            photo?.let {
+                                val stream = ByteArrayOutputStream()
+                                it.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+                                val b64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                                put(JSONObject().put("inline_data", JSONObject().put("mime_type", "image/jpeg").put("data", b64)))
+                            }
+                        }
+                        val contents = JSONArray().put(JSONObject().put("parts", parts))
+                        val reqBody = JSONObject().put("contents", contents).toString().toRequestBody("application/json".toMediaType())
+                        val request = Request.Builder().url(url).post(reqBody).build()
+                        val response = client.newCall(request).execute()
+                        val resStr = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            return@withContext Result.failure(Exception("Ошибка API (${response.code}). Проверьте ключ."))
+                        }
+                        val root = JSONObject(resStr)
+                        val text = root.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
+                        val clean = text.replace("```json", "").replace("```", "").trim()
+                        val listType = object : TypeToken<List<Recipe>>() {}.type
+                        val list: List<Recipe> = gson.fromJson(clean, listType)
+                        Result.success(list)
+                    } catch (e: Exception) {
+                        Result.failure(e)
+                    }
+                }
+        }
+        SUBEOF
+
+        # 8. MainActivity.kt
+        cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/MainActivity.kt
+        package com.fridgechef.ai
+
+        import android.content.Context
+        import android.graphics.Bitmap
+        import android.os.Bundle
+        import android.widget.Toast
+        import androidx.activity.ComponentActivity
+        import androidx.activity.compose.rememberLauncherForActivityResult
+        import androidx.activity.compose.setContent
+        import androidx.activity.result.contract.ActivityResultContracts
+        import androidx.compose.foundation.layout.*
+        import androidx.compose.foundation.lazy.LazyColumn
+        import androidx.compose.foundation.lazy.items
+        import androidx.compose.foundation.shape.RoundedCornerShape
+        import androidx.compose.material3.*
+        import androidx.compose.runtime.*
+        import androidx.compose.ui.Modifier
+        import androidx.compose.ui.graphics.Color
+        import androidx.compose.ui.platform.LocalContext
+        import androidx.compose.ui.unit.dp
+        import androidx.compose.ui.unit.sp
+        import com.fridgechef.ai.data.AiRecipeService
+        import com.fridgechef.ai.data.Recipe
+        import kotlinx.coroutines.launch
+
+        class MainActivity : ComponentActivity() {
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                setContent {
+                    MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF2E7D32))) {
+                        Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFBFBFB)) {
+                            FridgeChefScreen()
+                        }
+                    }
+                }
+            }
+        }
+
+        @OptIn(ExperimentalMaterial3Api::class)
+        @Composable
+        fun FridgeChefScreen() {
+            val context = LocalContext.current
+            val prefs = remember { context.getSharedPreferences("fridge_prefs", Context.MODE_PRIVATE) }
+            val scope = rememberCoroutineScope()
+
+            var apiKey by remember { mutableStateOf(prefs.getString("api_key", "") ?: "") }
+            var newIngredient by remember { mutableStateOf("") }
+            val products = remember { mutableStateListOf("Яйца", "Сыр", "Помидоры", "Молоко") }
+            val recipes = remember { mutableStateListOf<Recipe>() }
+            var photoBmp by remember { mutableStateOf<Bitmap?>(null) }
+            var isLoading by remember { mutableStateOf(false) }
+
+            val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+                photoBmp = bmp
+                if (bmp != null) Toast.makeText(context, "Фото прикреплено!", Toast.LENGTH_SHORT).show()
+            }
+
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("FridgeChef AI", color = Color.White) },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF2E7D32))
+                    )
+                }
+            ) { padding ->
+                LazyColumn(
+                    modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    item {
+                        OutlinedTextField(
+                            value = apiKey,
+                            onValueChange = {
+                                apiKey = it
+                                prefs.edit().putString("api_key", it.trim()).apply()
+                            },
+                            label = { Text("Gemini API Key (aistudio.google.com)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = newIngredient,
+                                onValueChange = { newIngredient = it },
+                                label = { Text("Добавить продукт") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(onClick = {
+                                if (newIngredient.isNotBlank()) {
+                                    products.add(newIngredient.trim())
+                                    newIngredient = ""
+                                }
+                            }) { Text("+") }
+                        }
+                    }
+                    item {
+                        Text("В холодильнике: ${products.joinToString(", ")}", fontSize = 14.sp, color = Color.DarkGray)
+                    }
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { photoLauncher.launch(null) }) {
+                                Text(if (photoBmp != null) "Фото есть ✓" else "Сделать фото")
+                            }
+                            Button(
+                                enabled = !isLoading && apiKey.isNotBlank(),
+                                onClick = {
+                                    isLoading = true
+                                    scope.launch {
+                                        val service = AiRecipeService(apiKey)
+                                        service.fetchRecipes(products, photoBmp)
+                                            .onSuccess {
+                                                recipes.clear()
+                                                recipes.addAll(it)
+                                            }
+                                            .onFailure {
+                                                Toast.makeText(context, it.message, Toast.LENGTH_LONG).show()
+                                            }
+                                        isLoading = false
+                                    }
+                                }
+                            ) {
+                                Text(if (isLoading) "Ищем рецепты..." else "Найти рецепты")
+                            }
+                        }
+                    }
+                    items(recipes) { recipe ->
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(recipe.title, fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                Text("⏱ ${recipe.timeMinutes} мин  •  🔥 ${recipe.calories} ккал  •  ${recipe.difficulty}", fontSize = 13.sp, color = Color.Gray)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("Ингредиенты: ${recipe.ingredientsUsed.joinToString(", ")}", fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("Шаги приготовления:", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, fontSize = 13.sp)
+                                recipe.steps.forEachIndexed { i, s ->
+                                    Text("${i + 1}. $s", fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        SUBEOF
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+
+    - name: Build Release APK
+      run: gradle assembleRelease
+
+    - name: Upload RuStore APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: FridgeChefAI-RuStore-APK
+        path: app/build/outputs/apk/release/*.apk
