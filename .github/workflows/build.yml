@@ -453,7 +453,7 @@ jobs:
                 if (result.resultCode == Activity.RESULT_OK) {
                     val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
                     if (!spokenText.isNullOrBlank()) {
-                        val parsedItems = spokenText.split(",", " и ", " ").map { it.trim().capitalize() }.filter { it.length > 2 }
+                        val parsedItems = spokenText.split(",", " и ", " ").map { it.trim() }.filter { it.length > 2 }
                         parsedItems.forEach { item ->
                             if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
                         }
@@ -559,7 +559,7 @@ jobs:
                             onCustomIngredientChange = { customIngredient = it },
                             onAddCustom = {
                                 if (customIngredient.isNotBlank() && !selectedIngredients.contains(customIngredient)) {
-                                    selectedIngredients.add(customIngredient.trim().capitalize())
+                                    selectedIngredients.add(customIngredient.trim())
                                     customIngredient = ""
                                 }
                             },
