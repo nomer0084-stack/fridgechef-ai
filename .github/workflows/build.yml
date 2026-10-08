@@ -21,7 +21,6 @@ jobs:
         mkdir -p app/src/main/java/com/fridgechef/ai/data
         mkdir -p app/src/main/res/values
         mkdir -p app/src/main/res/drawable
-        mkdir -p app/src/main/res/mipmap-anydpi-v26
 
         # 1. settings.gradle.kts
         cat << 'SUBEOF' > settings.gradle.kts
@@ -111,7 +110,7 @@ jobs:
         }
         SUBEOF
 
-        # 5. AndroidManifest.xml
+        # 5. AndroidManifest.xml (uses @drawable/ic_launcher)
         cat << 'SUBEOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -122,9 +121,9 @@ jobs:
 
             <application
                 android:allowBackup="true"
-                android:icon="@mipmap/ic_launcher"
+                android:icon="@drawable/ic_launcher"
                 android:label="FridgeChef AI"
-                android:roundIcon="@mipmap/ic_launcher"
+                android:roundIcon="@drawable/ic_launcher"
                 android:supportsRtl="true"
                 android:theme="@android:style/Theme.Material.Light.NoActionBar">
                 <activity
@@ -140,38 +139,26 @@ jobs:
         </manifest>
         SUBEOF
 
-        # 6. Icons
-        cat << 'SUBEOF' > app/src/main/res/drawable/ic_launcher_foreground.xml
+        # 6. Drawable Icon
+        cat << 'SUBEOF' > app/src/main/res/drawable/ic_launcher.xml
         <vector xmlns:android="http://schemas.android.com/apk/res/android"
             android:width="108dp"
             android:height="108dp"
             android:viewportWidth="108"
             android:viewportHeight="108">
             <path
+                android:fillColor="#2E7D32"
+                android:pathData="M10,10 h88 v88 H10 z"/>
+            <path
                 android:fillColor="#FBC02D"
                 android:pathData="M34,22 C34,16 42,14 46,18 C50,14 58,14 62,18 C66,14 74,16 74,22 C74,26 70,28 66,28 L42,28 C38,28 34,26 34,22 Z"/>
             <path
-                android:fillColor="#2E7D32"
+                android:fillColor="#FFFFFF"
                 android:pathData="M32,32 h44 c3.3,0 6,2.7 6,6 v46 c0,3.3 -2.7,6 -6,6 H32 c-3.3,0 -6,-2.7 -6,-6 V38 c0,-3.3 2.7,-6 6,-6 z"/>
             <path
-                android:fillColor="#FFF9C4"
+                android:fillColor="#FBC02D"
                 android:pathData="M38,40 h14 v44 H38 z M56,40 h14 v44 H56 z"/>
         </vector>
-        SUBEOF
-
-        cat << 'SUBEOF' > app/src/main/res/values/colors.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <color name="brand_green">#2E7D32</color>
-        </resources>
-        SUBEOF
-
-        cat << 'SUBEOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-            <background android:drawable="@color/brand_green"/>
-            <foreground android:drawable="@drawable/ic_launcher_foreground"/>
-        </adaptive-icon>
         SUBEOF
 
         # 7. Models.kt
@@ -283,7 +270,7 @@ jobs:
                         steps = listOf(
                             "Разогрейте сковороду с каплей масла.",
                             "Обжарьте нарезанные ингредиенты 2-3 минуты.",
-                            "Залейте взбитыми яйцами (или смесью) и томите под крышкой 5 минут."
+                            "Залейте взбитыми яйцами и томите под крышкой 5 минут."
                         )
                     ),
                     Recipe(
@@ -317,7 +304,7 @@ jobs:
         }
         SUBEOF
 
-        # 9. MainActivity.kt (100% compile-safe, beautiful Green & Yellow UI)
+        # 9. MainActivity.kt (100% clean, no naked returns, green/yellow palette)
         cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/MainActivity.kt
         package com.fridgechef.ai
 
@@ -424,7 +411,6 @@ jobs:
                 )
             }
 
-            // Direct in-app camera launcher
             val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
                 if (bitmap != null) {
                     cameraPhoto = bitmap
@@ -432,17 +418,15 @@ jobs:
                 }
             }
 
-            // Native Voice Input launcher (Speech to Text)
             val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                 if (result.resultCode == Activity.RESULT_OK) {
                     val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
                     if (!spokenText.isNullOrBlank()) {
                         val parsedItems = spokenText.split(",", " и ", " ").map { it.trim() }.filter { it.length > 2 }
                         parsedItems.forEach { item ->
-                            val cleanItem = item.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                            if (!selectedIngredients.contains(cleanItem)) selectedIngredients.add(cleanItem)
+                            if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
                         }
-                        Toast.makeText(context, "Добавлено голосом: $spokenText", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Добавлено: $spokenText", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -459,148 +443,148 @@ jobs:
                 })
             } else {
                 Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(BrandYellow),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("👨‍🍳", fontSize = 20.sp)
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("FridgeChef AI", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
-                                        if (userProfile.isPro) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Surface(color = BrandYellow, shape = RoundedCornerShape(6.dp)) {
-                                                Text("PRO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier.size(36.dp).clip(CircleShape).background(BrandYellow),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("👨‍🍳", fontSize = 20.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("FridgeChef AI", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
+                                            if (userProfile.isPro) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(color = BrandYellow, shape = RoundedCornerShape(6.dp)) {
+                                                    Text("PRO", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                                }
                                             }
                                         }
+                                        Text("Шеф: ${userProfile.name}", fontSize = 11.sp, color = BrandYellowLight)
                                     }
-                                    Text("Шеф: ${userProfile.name}", fontSize = 11.sp, color = BrandYellowLight)
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandGreen),
+                            actions = {
+                                if (!userProfile.isPro) {
+                                    TextButton(
+                                        onClick = { showProDialog = true },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.Black),
+                                        modifier = Modifier.background(BrandYellow, RoundedCornerShape(16.dp)).height(32.dp)
+                                    ) {
+                                        Text("⭐ PRO", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
                                 }
                             }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandGreen),
-                        actions = {
-                            if (!userProfile.isPro) {
-                                TextButton(
-                                    onClick = { showProDialog = true },
-                                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Black),
-                                    modifier = Modifier.background(BrandYellow, RoundedCornerShape(16.dp)).height(32.dp)
-                                ) {
-                                    Text("⭐ PRO", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                            }
+                        )
+                    },
+                    bottomBar = {
+                        NavigationBar(containerColor = Color.White) {
+                            NavigationBarItem(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                icon = { Text("🛒", fontSize = 18.sp) },
+                                label = { Text("Продукты") }
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                icon = { Text("📖", fontSize = 18.sp) },
+                                label = { Text("Рецепты") }
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 2,
+                                onClick = { selectedTab = 2 },
+                                icon = { Text("⏰", fontSize = 18.sp) },
+                                label = { Text("Сроки") }
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 },
+                                icon = { Text("👤", fontSize = 18.sp) },
+                                label = { Text("Профиль") }
+                            )
                         }
-                    )
-                },
-                bottomBar = {
-                    NavigationBar(containerColor = Color.White) {
-                        NavigationBarItem(
-                            selected = selectedTab == 0,
-                            onClick = { selectedTab = 0 },
-                            icon = { Text("🛒", fontSize = 18.sp) },
-                            label = { Text("Продукты") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 1,
-                            onClick = { selectedTab = 1 },
-                            icon = { Text("📖", fontSize = 18.sp) },
-                            label = { Text("Рецепты") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 2,
-                            onClick = { selectedTab = 2 },
-                            icon = { Text("⏰", fontSize = 18.sp) },
-                            label = { Text("Сроки") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 3,
-                            onClick = { selectedTab = 3 },
-                            icon = { Text("👤", fontSize = 18.sp) },
-                            label = { Text("Профиль") }
-                        )
                     }
-                }
-            ) { padding ->
-                Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-                    when (selectedTab) {
-                        0 -> IngredientsView(
-                            popularList = popularIngredients,
-                            selectedList = selectedIngredients,
-                            customIngredient = customIngredient,
-                            onCustomIngredientChange = { customIngredient = it },
-                            onAddCustom = {
-                                if (customIngredient.isNotBlank()) {
-                                    val item = customIngredient.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                                    if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
-                                    customIngredient = ""
-                                }
-                            },
-                            onToggle = { item ->
-                                if (selectedIngredients.contains(item)) selectedIngredients.remove(item)
-                                else selectedIngredients.add(item)
-                            },
-                            hasPhoto = cameraPhoto != null,
-                            onTakePhoto = { cameraLauncher.launch(null) },
-                            onVoiceInput = {
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Назовите продукты через запятую...")
-                                }
-                                try {
-                                    speechLauncher.launch(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Голосовой ввод недоступен", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            onGenerate = {
-                                isLoading = true
-                                selectedTab = 1
-                                scope.launch {
-                                    val service = AiRecipeService(apiKey)
-                                    val res = service.fetchRecipes(selectedIngredients, cameraPhoto, userProfile)
-                                    isLoading = false
-                                    res.onSuccess {
-                                        recipes.clear()
-                                        recipes.addAll(it)
+                ) { padding ->
+                    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                        when (selectedTab) {
+                            0 -> IngredientsView(
+                                popularList = popularIngredients,
+                                selectedList = selectedIngredients,
+                                customIngredient = customIngredient,
+                                onCustomIngredientChange = { customIngredient = it },
+                                onAddCustom = {
+                                    if (customIngredient.isNotBlank()) {
+                                        val item = customIngredient.trim()
+                                        if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
+                                        customIngredient = ""
+                                    }
+                                },
+                                onToggle = { item ->
+                                    if (selectedIngredients.contains(item)) selectedIngredients.remove(item)
+                                    else selectedIngredients.add(item)
+                                },
+                                hasPhoto = cameraPhoto != null,
+                                onTakePhoto = { cameraLauncher.launch(null) },
+                                onVoiceInput = {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Назовите продукты через запятую...")
+                                    }
+                                    try {
+                                        speechLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Голосовой ввод недоступен", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onGenerate = {
+                                    isLoading = true
+                                    selectedTab = 1
+                                    scope.launch {
+                                        val service = AiRecipeService(apiKey)
+                                        val res = service.fetchRecipes(selectedIngredients, cameraPhoto, userProfile)
+                                        isLoading = false
+                                        res.onSuccess {
+                                            recipes.clear()
+                                            recipes.addAll(it)
+                                        }
                                     }
                                 }
-                            }
-                        )
-                        1 -> RecipesView(
-                            recipes = recipes,
-                            isLoading = isLoading
-                        )
-                        2 -> ExpiryView(
-                            items = expiryItems,
-                            onCookItem = { item ->
-                                if (!selectedIngredients.contains(item.name)) selectedIngredients.add(item.name)
-                                selectedTab = 0
-                                Toast.makeText(context, "${item.name} добавлен в рецепты!", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                        3 -> ProfileView(
-                            profile = userProfile,
-                            onUpdateProfile = { updated ->
-                                userProfile = updated
-                                prefs.edit()
-                                    .putString("user_name", updated.name)
-                                    .putString("user_diet", updated.dietType)
-                                    .putString("user_skill", updated.cookingSkill)
-                                    .putBoolean("is_pro", updated.isPro)
-                                    .apply()
-                                Toast.makeText(context, "Профиль сохранен!", Toast.LENGTH_SHORT).show()
-                            },
-                            onOpenPro = { showProDialog = true }
-                        )
+                            )
+                            1 -> RecipesView(
+                                recipes = recipes,
+                                isLoading = isLoading
+                            )
+                            2 -> ExpiryView(
+                                items = expiryItems,
+                                onCookItem = { item ->
+                                    if (!selectedIngredients.contains(item.name)) selectedIngredients.add(item.name)
+                                    selectedTab = 0
+                                    Toast.makeText(context, "${item.name} добавлен в рецепты!", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                            3 -> ProfileView(
+                                profile = userProfile,
+                                onUpdateProfile = { updated ->
+                                    userProfile = updated
+                                    prefs.edit()
+                                        .putString("user_name", updated.name)
+                                        .putString("user_diet", updated.dietType)
+                                        .putString("user_skill", updated.cookingSkill)
+                                        .putBoolean("is_pro", updated.isPro)
+                                        .apply()
+                                    Toast.makeText(context, "Профиль сохранен!", Toast.LENGTH_SHORT).show()
+                                },
+                                onOpenPro = { showProDialog = true }
+                            )
+                        }
                     }
                 }
-            }
             }
 
             if (showProDialog) {
@@ -693,7 +677,6 @@ jobs:
                     }
                 }
 
-                // Camera and Voice buttons
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
@@ -801,31 +784,31 @@ jobs:
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(recipes) { recipe ->
-                    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(recipe.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = BrandGreenDark)
-                                Surface(shape = RoundedCornerShape(8.dp), color = BrandYellowLight) {
-                                    Text("⏱ ${recipe.timeMinutes} мин", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                    items(recipes) { recipe ->
+                        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text(recipe.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = BrandGreenDark)
+                                    Surface(shape = RoundedCornerShape(8.dp), color = BrandYellowLight) {
+                                        Text("⏱ ${recipe.timeMinutes} мин", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                    }
                                 }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("🔥 ${recipe.calories} ккал   •   ${recipe.difficulty}", fontSize = 13.sp, color = Color.Gray)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Из холодильника: ${recipe.ingredientsUsed.joinToString(", ")}", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = BrandGreen)
-                            if (recipe.missingOptional.isNotEmpty()) {
-                                Text("По желанию: ${recipe.missingOptional.joinToString(", ")}", fontSize = 12.sp, color = Color.Gray)
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Приготовление:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            recipe.steps.forEachIndexed { i, step ->
-                                Text("${i + 1}. $step", fontSize = 13.sp, modifier = Modifier.padding(vertical = 1.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("🔥 ${recipe.calories} ккал   •   ${recipe.difficulty}", fontSize = 13.sp, color = Color.Gray)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Из холодильника: ${recipe.ingredientsUsed.joinToString(", ")}", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = BrandGreen)
+                                if (recipe.missingOptional.isNotEmpty()) {
+                                    Text("По желанию: ${recipe.missingOptional.joinToString(", ")}", fontSize = 12.sp, color = Color.Gray)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Приготовление:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                recipe.steps.forEachIndexed { i, step ->
+                                    Text("${i + 1}. $step", fontSize = 13.sp, modifier = Modifier.padding(vertical = 1.dp))
+                                }
                             }
                         }
                     }
                 }
-            }
             }
         }
 
@@ -847,7 +830,7 @@ jobs:
                         else -> BrandGreen
                     }
                     Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp), modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.padding(14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Text(if (item.daysLeft <= 1) "Истекает скоро!" else "Осталось дней: ${item.daysLeft}", color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
