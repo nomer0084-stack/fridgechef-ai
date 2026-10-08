@@ -662,6 +662,7 @@ jobs:
             customIngredient: String,
             onCustomIngredientChange: (String) -> Unit,
             onAddCustom: () -> Unit,
+            onToggle: (String) -> Unit,
             hasPhoto: Boolean,
             onTakePhoto: () -> Unit,
             onVoiceInput: () -> Unit,
@@ -982,7 +983,7 @@ jobs:
       uses: gradle/actions/setup-gradle@v3
 
     - name: Build Release APK
-      run: gradle assembleRelease
+      run: gradle assembleRelease --stacktrace
 
     - name: Upload RuStore APK
       uses: actions/upload-artifact@v4
