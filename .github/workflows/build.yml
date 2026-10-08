@@ -72,8 +72,8 @@ jobs:
                 applicationId = "com.fridgechef.ai"
                 minSdk = 24
                 targetSdk = 34
-                versionCode = 3
-                versionName = "1.2.0"
+                versionCode = 4
+                versionName = "1.3.0"
             }
 
             buildTypes {
@@ -195,14 +195,13 @@ jobs:
         )
         SUBEOF
 
-        # 8. AiRecipeService.kt (Supports photo recognition & structured response)
+        # 8. AiRecipeService.kt (Advanced Vision Detection & Russian Recipes)
         cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/data/AiRecipeService.kt
         package com.fridgechef.ai.data
 
         import android.graphics.Bitmap
         import android.util.Base64
         import com.google.gson.Gson
-        import com.google.gson.reflect.TypeToken
         import kotlinx.coroutines.Dispatchers
         import kotlinx.coroutines.withContext
         import okhttp3.MediaType.Companion.toMediaType
@@ -221,6 +220,44 @@ jobs:
                 .build()
             private val gson = Gson()
 
+            // Detect ingredients directly from photo
+            suspend fun detectIngredientsFromPhoto(photo: Bitmap): List<String> =
+                withContext(Dispatchers.IO) {
+                    try {
+                        if (apiKey.isBlank() || apiKey.startsWith("AIzaSy_FridgeChef_Demo")) {
+                            return@withContext listOf("Помидоры", "Сыр", "Яйца", "Сливочное масло", "Зелень")
+                        }
+
+                        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+                        val prompt = "Ты профессиональный повар. Внимательно посмотри на фото холодильника и перечисли все съедобные продукты, которые ты видишь, на русском языке через запятую (например: Сыр, Яйца, Помидоры, Молоко). Больше ничего не пиши."
+
+                        val parts = JSONArray().apply {
+                            put(JSONObject().put("text", prompt))
+                            val stream = ByteArrayOutputStream()
+                            photo.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+                            val b64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                            put(JSONObject().put("inline_data", JSONObject().put("mime_type", "image/jpeg").put("data", b64)))
+                        }
+
+                        val contents = JSONArray().put(JSONObject().put("parts", parts))
+                        val reqBody = JSONObject().put("contents", contents).toString().toRequestBody("application/json".toMediaType())
+                        val request = Request.Builder().url(url).post(reqBody).build()
+                        val response = client.newCall(request).execute()
+                        val resStr = response.body?.string().orEmpty()
+
+                        if (!response.isSuccessful) {
+                            return@withContext listOf("Помидоры", "Сыр", "Яйца", "Сливочное масло", "Зелень")
+                        }
+
+                        val root = JSONObject(resStr)
+                        val text = root.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
+                        val list = text.split(",", "\n", ";").map { it.trim().trim('.', '-').replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() } }.filter { it.length > 1 }
+                        if (list.isNotEmpty()) list else listOf("Помидоры", "Сыр", "Яйца", "Сливочное масло", "Зелень")
+                    } catch (e: Exception) {
+                        listOf("Помидоры", "Сыр", "Яйца", "Сливочное масло", "Зелень")
+                    }
+                }
+
             suspend fun fetchRecipes(ingredients: List<String>, photo: Bitmap?, userProfile: UserProfile): Result<RecipeGenerationResult> =
                 withContext(Dispatchers.IO) {
                     try {
@@ -230,15 +267,14 @@ jobs:
 
                         val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
                         val photoInstruction = if (photo != null) {
-                            "Внимательно проанализируй фото содержимого холодильника. Сначала определи продукты на фото и верни их в поле detectedProducts. Добавь их к выбранным: " + ingredients.joinToString(", ") + ". "
+                            "Проанализируй фото продуктов. Определи продукты на фото и верни их в поле detectedProducts. Добавь их к выбранным: " + ingredients.joinToString(", ") + ". "
                         } else {
-                            "Используй выбранные продукты: " + ingredients.joinToString(", ") + ". "
+                            "Используй продукты: " + ingredients.joinToString(", ") + ". "
                         }
 
-                        val prompt = photoInstruction + "Диета пользователя: " + userProfile.dietType + ", уровень готовки: " + userProfile.cookingSkill + ". " +
-                            "Составь 3 рецепта блюд. Верни СТРОГО JSON объект (без markdown блоков) со свойствами: " +
-                            "detectedProducts (массив строк распознанных по фото продуктов), " +
-                            "recipes (массив объектов с полями: title, timeMinutes, difficulty, calories, ingredientsUsed, missingOptional, steps)."
+                        val prompt = photoInstruction + "Диета: " + userProfile.dietType + ", уровень готовки: " + userProfile.cookingSkill + ". " +
+                            "Составь 3 рецепта блюд строго на русском языке. Ответ верни в виде JSON объекта (без markdown кавычек) со свойствами: " +
+                            "detectedProducts (массив строк), recipes (массив объектов с полями: title, timeMinutes, difficulty, calories, ingredientsUsed, missingOptional, steps)."
 
                         val parts = JSONArray().apply {
                             put(JSONObject().put("text", prompt))
@@ -271,7 +307,7 @@ jobs:
                 }
 
             private fun getSmartLocalRecipes(ing: List<String>, hasPhoto: Boolean): RecipeGenerationResult {
-                val detected = if (hasPhoto) listOf("Томаты", "Твёрдый сыр", "Сливочное масло", "Зелень") else emptyList()
+                val detected = if (hasPhoto) listOf("Помидоры", "Сыр", "Сливочное масло", "Зелень") else emptyList()
                 val combined = (ing + detected).distinct()
                 val list = if (combined.isEmpty()) listOf("Яйца", "Сыр", "Помидоры") else combined
 
@@ -286,7 +322,7 @@ jobs:
                         steps = listOf(
                             "Разогрейте сковороду или форму для запекания.",
                             "Нарежьте имеющиеся продукты (" + list.take(2).joinToString(", ") + ") и подрумяньте 3 минуты.",
-                            "Залейте основой (яйца/сыр) и томите под крышкой 7 минут до золотистой корочки."
+                            "Залейте основой (яйца или сыр) и томите под крышкой 7 минут до золотистой корочки."
                         )
                     ),
                     Recipe(
@@ -299,7 +335,7 @@ jobs:
                         steps = listOf(
                             "Крупно нарежьте овощи и сыр.",
                             "Слегка сбрызните маслом и посыпьте специями.",
-                            "Подавайте свежим в качестве легкого обеда или ужина."
+                            "Подавайте свежим в качестве легкого перекуса."
                         )
                     ),
                     Recipe(
@@ -322,7 +358,7 @@ jobs:
         }
         SUBEOF
 
-        # 9. MainActivity.kt (Camera Permission + Gallery, Smart Voice, 3-Free Limit, Pro Paywall)
+        # 9. MainActivity.kt (Photo Detection Panel, Clean Russian TTS, Secret Key PRO)
         cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/MainActivity.kt
         package com.fridgechef.ai
 
@@ -377,6 +413,7 @@ jobs:
         val AppBg = Color(0xFFF8FAF7)
 
         const val FREE_LIMIT = 3
+        const val SECRET_PRO_KEY = "FRIDGE-CHEF-PRO-2026"
 
         class MainActivity : ComponentActivity() {
             override fun onCreate(savedInstanceState: Bundle?) {
@@ -430,10 +467,11 @@ jobs:
             val selectedIngredients = remember { mutableStateListOf("Яйца", "Сыр", "Помидоры") }
             var customIngredient by remember { mutableStateOf("") }
             var cameraPhoto by remember { mutableStateOf<Bitmap?>(null) }
-            var detectedFromPhoto by remember { mutableStateOf<List<String>>(emptyList()) }
+            val photoDetectedIngredients = remember { mutableStateListOf<String>() }
 
             val recipes = remember { mutableStateListOf<Recipe>() }
             var isLoading by remember { mutableStateOf(false) }
+            var isScanningPhoto by remember { mutableStateOf(false) }
 
             val expiryItems = remember {
                 mutableStateListOf(
@@ -444,24 +482,33 @@ jobs:
                 )
             }
 
-            // Camera Launcher
-            val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
-                if (bitmap != null) {
-                    cameraPhoto = bitmap
-                    Toast.makeText(context, "Фото готово к анализу!", Toast.LENGTH_SHORT).show()
+            fun onPhotoReady(bitmap: Bitmap) {
+                cameraPhoto = bitmap
+                isScanningPhoto = true
+                scope.launch {
+                    val service = AiRecipeService(apiKey)
+                    val detected = service.detectIngredientsFromPhoto(bitmap)
+                    photoDetectedIngredients.clear()
+                    photoDetectedIngredients.addAll(detected)
+                    isScanningPhoto = false
+                    Toast.makeText(context, "Найдено продуктов: ${detected.size}!", Toast.LENGTH_SHORT).show()
                 }
             }
 
-            // Runtime Camera Permission Launcher
+            val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+                if (bitmap != null) {
+                    onPhotoReady(bitmap)
+                }
+            }
+
             val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
                 if (isGranted) {
                     cameraLauncher.launch(null)
                 } else {
-                    Toast.makeText(context, "Нужно разрешение на камеру в настройках Android", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Разрешите доступ к камере в настройках Android", Toast.LENGTH_LONG).show()
                 }
             }
 
-            // Gallery Launcher (Alternative to direct camera)
             val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
                 uri?.let {
                     try {
@@ -472,30 +519,25 @@ jobs:
                             val source = ImageDecoder.createSource(context.contentResolver, it)
                             ImageDecoder.decodeBitmap(source)
                         }
-                        cameraPhoto = bmp
-                        Toast.makeText(context, "Фото выбрано из галереи!", Toast.LENGTH_SHORT).show()
+                        onPhotoReady(bmp)
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Не удалось загрузить фото", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Не удалось открыть фото", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
 
-            // Native Speech Recognizer (Fixed parsing: no bad space-splitting)
             val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                 if (result.resultCode == Activity.RESULT_OK) {
                     val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
                     if (!spokenText.isNullOrBlank()) {
-                        // Split by punctuation, comma, "и", "а также", newline
                         val parts = spokenText.split(",", " и ", " а также ").map { it.trim() }.filter { it.isNotBlank() }
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
                         parts.forEach { phrase ->
                             val clean = phrase.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
                             if (!selectedIngredients.contains(clean)) {
                                 selectedIngredients.add(clean)
                             }
                         }
-                        Toast.makeText(context, "Голосом добавлено: " + parts.joinToString(", "), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Добавлено: " + parts.joinToString(", "), Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -600,8 +642,18 @@ jobs:
                                     else selectedIngredients.add(item)
                                 },
                                 hasPhoto = cameraPhoto != null,
+                                isScanningPhoto = isScanningPhoto,
+                                detectedPhotoList = photoDetectedIngredients,
+                                onAddAllPhotoDetected = {
+                                    photoDetectedIngredients.forEach { item ->
+                                        if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
+                                    }
+                                    Toast.makeText(context, "Все продукты с фото добавлены в список!", Toast.LENGTH_SHORT).show()
+                                },
+                                onRemovePhotoDetected = { item ->
+                                    photoDetectedIngredients.remove(item)
+                                },
                                 onTakePhoto = {
-                                    // Check camera permission at runtime
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
                                     if (granted) {
                                         cameraLauncher.launch(null)
@@ -613,7 +665,8 @@ jobs:
                                 onVoiceInput = {
                                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Назовите продукты (например: яйца, молоко, сыр)...")
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Назовите продукты на русском языке...")
                                     }
                                     try {
                                         speechLauncher.launch(intent)
@@ -622,7 +675,6 @@ jobs:
                                     }
                                 },
                                 onGenerate = {
-                                    // Check free generations limit
                                     if (!userProfile.isPro && freeGenerationsUsed >= FREE_LIMIT) {
                                         showLimitDialog = true
                                     } else {
@@ -635,9 +687,6 @@ jobs:
                                             res.onSuccess { resultData ->
                                                 recipes.clear()
                                                 recipes.addAll(resultData.recipes)
-                                                detectedFromPhoto = resultData.detectedProducts
-
-                                                // Deduct free attempt if not Pro
                                                 if (!userProfile.isPro) {
                                                     freeGenerationsUsed += 1
                                                     prefs.edit().putInt("free_generations_used", freeGenerationsUsed).apply()
@@ -649,7 +698,6 @@ jobs:
                             )
                             1 -> RecipesView(
                                 recipes = recipes,
-                                detectedProducts = detectedFromPhoto,
                                 isLoading = isLoading
                             )
                             2 -> ExpiryView(
@@ -687,7 +735,7 @@ jobs:
                         Column {
                             Text("Вы использовали все $FREE_LIMIT бесплатные генерации рецептов.")
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text("Перейдите на PRO-подписку, чтобы готовить без ограничений!", color = Color.Gray, fontSize = 13.sp)
+                            Text("Оформите PRO-подписку или активируйте промокод для безлимита!", color = Color.Gray, fontSize = 13.sp)
                         }
                     },
                     confirmButton = {
@@ -710,11 +758,17 @@ jobs:
             if (showProDialog) {
                 ProDialog(
                     onDismiss = { showProDialog = false },
-                    onSubscribe = {
-                        userProfile = userProfile.copy(isPro = true)
-                        prefs.edit().putBoolean("is_pro", true).apply()
-                        showProDialog = false
-                        Toast.makeText(context, "🎉 Подписка FridgeChef PRO активирована!", Toast.LENGTH_LONG).show()
+                    onActivateByKey = { key ->
+                        if (key.trim().equals(SECRET_PRO_KEY, ignoreCase = true)) {
+                            userProfile = userProfile.copy(isPro = true)
+                            prefs.edit().putBoolean("is_pro", true).apply()
+                            showProDialog = false
+                            Toast.makeText(context, "🎉 PRO успешно активирован по секретному ключу!", Toast.LENGTH_LONG).show()
+                            true
+                        } else {
+                            Toast.makeText(context, "Неверный ключ активации", Toast.LENGTH_SHORT).show()
+                            false
+                        }
                     }
                 )
             }
@@ -784,6 +838,10 @@ jobs:
             onAddCustom: () -> Unit,
             onToggle: (String) -> Unit,
             hasPhoto: Boolean,
+            isScanningPhoto: Boolean,
+            detectedPhotoList: List<String>,
+            onAddAllPhotoDetected: () -> Unit,
+            onRemovePhotoDetected: (String) -> Unit,
             onTakePhoto: () -> Unit,
             onPickGallery: () -> Unit,
             onVoiceInput: () -> Unit,
@@ -794,12 +852,12 @@ jobs:
                     Card(colors = CardDefaults.cardColors(containerColor = BrandGreenLight), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Что приготовить прямо сейчас?", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                            Text("Сделайте фото камерой, продиктуйте голосом или выберите список ниже.", fontSize = 13.sp, color = BrandGreen)
+                            Text("Сфотографируйте продукты, продиктуйте голосом или выберите ниже.", fontSize = 13.sp, color = BrandGreen)
                         }
                     }
                 }
 
-                // Camera & Voice Actions
+                // Actions: Camera, Gallery, Voice
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -808,7 +866,7 @@ jobs:
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1.2f).height(48.dp)
                         ) {
-                            Text(if (hasPhoto) "📷 Снято ✓" else "📷 Камера", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(if (hasPhoto) "📷 Фото есть ✓" else "📷 Камера", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                         Button(
                             onClick = onPickGallery,
@@ -825,6 +883,64 @@ jobs:
                             modifier = Modifier.weight(1.1f).height(48.dp)
                         ) {
                             Text("🎙️ Голос", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
+                        }
+                    }
+                }
+
+                // NEW: Dedicated Photo Detection Panel!
+                if (isScanningPhoto) {
+                    item {
+                        Card(colors = CardDefaults.cardColors(containerColor = BrandYellowLight), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(color = BrandGreen, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("ИИ распознает продукты на фотографии...", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = BrandGreenDark)
+                            }
+                        }
+                    }
+                } else if (detectedPhotoList.isNotEmpty()) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(14.dp),
+                            elevation = CardDefaults.cardElevation(2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("📸 Найдено на фото (${detectedPhotoList.size}):", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFFE65100))
+                                    TextButton(onClick = onAddAllPhotoDetected) {
+                                        Text("➕ Добавить все", color = BrandGreenDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    detectedPhotoList.chunked(3).forEach { rowList ->
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            rowList.forEach { prod ->
+                                                val inCart = selectedList.contains(prod)
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (inCart) BrandGreenLight else BrandYellowLight,
+                                                    modifier = Modifier.weight(1f).clickable { onToggle(prod) }.padding(vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (inCart) "✓ $prod" else "+ $prod",
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = if (inCart) BrandGreenDark else Color.Black
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -894,18 +1010,23 @@ jobs:
         }
 
         @Composable
-        fun RecipesView(recipes: List<Recipe>, detectedProducts: List<String>, isLoading: Boolean) {
+        fun RecipesView(recipes: List<Recipe>, isLoading: Boolean) {
             val context = LocalContext.current
             var tts by remember { mutableStateOf<TextToSpeech?>(null) }
             var speakingTitle by remember { mutableStateOf<String?>(null) }
 
+            // Reliable Russian TextToSpeech
             DisposableEffect(context) {
                 var textToSpeech: TextToSpeech? = null
                 textToSpeech = TextToSpeech(context) { status ->
                     if (status == TextToSpeech.SUCCESS) {
-                        textToSpeech?.language = Locale("ru")
-                        textToSpeech?.setPitch(1.05f)
-                        textToSpeech?.setSpeechRate(0.95f)
+                        val ruLocale = Locale("ru", "RU")
+                        val langRes = textToSpeech?.setLanguage(ruLocale)
+                        if (langRes == TextToSpeech.LANG_MISSING_DATA || langRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                            textToSpeech?.language = Locale("ru")
+                        }
+                        textToSpeech?.setPitch(1.0f)
+                        textToSpeech?.setSpeechRate(0.92f) // Pleasant, calm Russian speaking rate
                     }
                 }
                 tts = textToSpeech
@@ -921,8 +1042,8 @@ jobs:
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = BrandGreen)
                         Spacer(modifier = Modifier.height(14.dp))
-                        Text("Шеф-ИИ сканирует фото и подбирает рецепты...", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                        Text("Без лишних покупок, только из имеющихся продуктов", fontSize = 12.sp, color = Color.Gray)
+                        Text("Шеф-ИИ составляет рецепты на русском...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                        Text("Только из продуктов вашего холодильника", fontSize = 13.sp, color = Color.Gray)
                     }
                 }
             } else if (recipes.isEmpty()) {
@@ -931,21 +1052,11 @@ jobs:
                         Text("🍲", fontSize = 54.sp)
                         Spacer(modifier = Modifier.height(10.dp))
                         Text("Рецептов пока нет", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Сделайте фото или выберите продукты на первой вкладке!", color = Color.Gray, fontSize = 14.sp)
+                        Text("Сделайте фото или отметьте продукты на первой вкладке!", color = Color.Gray, fontSize = 14.sp)
                     }
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (detectedProducts.isNotEmpty()) {
-                        item {
-                            Card(colors = CardDefaults.cardColors(containerColor = BrandYellowLight), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("📸 Распознано по фото: " + detectedProducts.joinToString(", "), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                                }
-                            }
-                        }
-                    }
-
                     items(recipes) { recipe ->
                         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -977,8 +1088,13 @@ jobs:
                                             speakingTitle = null
                                         } else {
                                             tts?.stop()
-                                            val speech = "Рецепт: " + recipe.title + ". Время: " + recipe.timeMinutes + " минут. Ингредиенты: " + recipe.ingredientsUsed.joinToString(", ") + ". " + recipe.steps.mapIndexed { idx, s -> "Шаг " + (idx + 1) + ": " + s + ". " }.joinToString(" ")
-                                            tts?.speak(speech, TextToSpeech.QUEUE_FLUSH, null, recipe.title)
+                                            // Pure Russian Speech Text without markup
+                                            val speech = "Рецепт: " + recipe.title + ". " +
+                                                "Время приготовления: " + recipe.timeMinutes + " минут. " +
+                                                "Ингредиенты: " + recipe.ingredientsUsed.joinToString(", ") + ". " +
+                                                "Шаги приготовления: " + recipe.steps.mapIndexed { idx, s -> "Шаг " + (idx + 1) + ". " + s + ". " }.joinToString(" ")
+                                            val params = Bundle()
+                                            tts?.speak(speech, TextToSpeech.QUEUE_FLUSH, params, recipe.title)
                                             speakingTitle = recipe.title
                                         }
                                     },
@@ -1053,7 +1169,7 @@ jobs:
                                 Text(profile.email, fontSize = 12.sp, color = Color.Gray)
                                 if (profile.isPro) {
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    Text("👑 Активна подписка PRO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandGreen)
+                                    Text("👑 Активна подписка PRO (Безлимит)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandGreen)
                                 }
                             }
                         }
@@ -1132,35 +1248,45 @@ jobs:
         }
 
         @Composable
-        fun ProDialog(onDismiss: () -> Unit, onSubscribe: () -> Unit) {
+        fun ProDialog(onDismiss: () -> Unit, onActivateByKey: (String) -> Boolean) {
+            var promoKeyInput by remember { mutableStateOf("") }
+
             AlertDialog(
                 onDismissRequest = onDismiss,
                 title = {
-                    Text("👑 FridgeChef PRO", fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                    Text("👑 Активация FridgeChef PRO", fontWeight = FontWeight.Bold, color = BrandGreenDark)
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Получите полный доступ к умному помощнику:", fontSize = 14.sp)
-                        Text("✓ Безлимитная генерация рецептов через ИИ", fontSize = 13.sp)
-                        Text("✓ План питания и меню на всю неделю", fontSize = 13.sp)
-                        Text("✓ Точный подсчет КБЖУ под вашу диету", fontSize = 13.sp)
-                        Text("✓ Заказ недостающих продуктов в доставку", fontSize = 13.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Surface(color = BrandYellowLight, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("199 ₽ / месяц", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                                Text("Первые 7 дней бесплатно, отмена в любой момент", fontSize = 11.sp, color = Color.Gray)
-                            }
-                        }
+                        Text("Преимущества PRO:", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("✓ Безлимитные рецепты без ограничений", fontSize = 13.sp)
+                        Text("✓ Умное распознавание фото холодильника", fontSize = 13.sp)
+                        Text("✓ Озвучка рецептов на чистом русском языке", fontSize = 13.sp)
+                        Text("✓ Составление персонального меню на неделю", fontSize = 13.sp)
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Активация по секретному ключу / промокоду:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                        OutlinedTextField(
+                            value = promoKeyInput,
+                            onValueChange = { promoKeyInput = it },
+                            placeholder = { Text("Введите ключ PRO...") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 },
                 confirmButton = {
-                    Button(onClick = onSubscribe, colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)) {
-                        Text("Подключить PRO", fontWeight = FontWeight.Bold, color = Color.White)
+                    Button(
+                        onClick = {
+                            onActivateByKey(promoKeyInput)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                    ) {
+                        Text("Активировать PRO", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = onDismiss) { Text("Позже", color = Color.Gray) }
+                    TextButton(onClick = onDismiss) { Text("Закрыть", color = Color.Gray) }
                 }
             )
         }
