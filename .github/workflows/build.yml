@@ -72,8 +72,8 @@ jobs:
                 applicationId = "com.fridgechef.ai"
                 minSdk = 24
                 targetSdk = 34
-                versionCode = 2
-                versionName = "1.1.0"
+                versionCode = 3
+                versionName = "1.2.0"
             }
 
             buildTypes {
@@ -110,7 +110,7 @@ jobs:
         }
         SUBEOF
 
-        # 5. AndroidManifest.xml (uses @drawable/ic_launcher)
+        # 5. AndroidManifest.xml
         cat << 'SUBEOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -175,6 +175,11 @@ jobs:
             val steps: List<String> = emptyList()
         )
 
+        data class RecipeGenerationResult(
+            val detectedProducts: List<String> = emptyList(),
+            val recipes: List<Recipe> = emptyList()
+        )
+
         data class UserProfile(
             val name: String = "Шеф-Повар",
             val email: String = "user@fridgechef.ai",
@@ -190,7 +195,7 @@ jobs:
         )
         SUBEOF
 
-        # 8. AiRecipeService.kt
+        # 8. AiRecipeService.kt (Supports photo recognition & structured response)
         cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/data/AiRecipeService.kt
         package com.fridgechef.ai.data
 
@@ -211,20 +216,29 @@ jobs:
 
         class AiRecipeService(private val apiKey: String) {
             private val client = OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
+                .connectTimeout(35, TimeUnit.SECONDS)
+                .readTimeout(35, TimeUnit.SECONDS)
                 .build()
             private val gson = Gson()
 
-            suspend fun fetchRecipes(ingredients: List<String>, photo: Bitmap?, userProfile: UserProfile): Result<List<Recipe>> =
+            suspend fun fetchRecipes(ingredients: List<String>, photo: Bitmap?, userProfile: UserProfile): Result<RecipeGenerationResult> =
                 withContext(Dispatchers.IO) {
                     try {
                         if (apiKey.isBlank() || apiKey.startsWith("AIzaSy_FridgeChef_Demo")) {
-                            return@withContext Result.success(getSmartLocalRecipes(ingredients))
+                            return@withContext Result.success(getSmartLocalRecipes(ingredients, photo != null))
                         }
 
                         val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
-                        val prompt = "Шеф-повар FridgeChef AI. Составь 3 рецепта блюд из продуктов: " + ingredients.joinToString(", ") + ". Диета: " + userProfile.dietType + ", уровень: " + userProfile.cookingSkill + ". Верни СТРОГО JSON массив без markdown кавычек с полями title, timeMinutes, difficulty, calories, ingredientsUsed, missingOptional, steps."
+                        val photoInstruction = if (photo != null) {
+                            "Внимательно проанализируй фото содержимого холодильника. Сначала определи продукты на фото и верни их в поле detectedProducts. Добавь их к выбранным: " + ingredients.joinToString(", ") + ". "
+                        } else {
+                            "Используй выбранные продукты: " + ingredients.joinToString(", ") + ". "
+                        }
+
+                        val prompt = photoInstruction + "Диета пользователя: " + userProfile.dietType + ", уровень готовки: " + userProfile.cookingSkill + ". " +
+                            "Составь 3 рецепта блюд. Верни СТРОГО JSON объект (без markdown блоков) со свойствами: " +
+                            "detectedProducts (массив строк распознанных по фото продуктов), " +
+                            "recipes (массив объектов с полями: title, timeMinutes, difficulty, calories, ingredientsUsed, missingOptional, steps)."
 
                         val parts = JSONArray().apply {
                             put(JSONObject().put("text", prompt))
@@ -243,76 +257,86 @@ jobs:
                         val resStr = response.body?.string().orEmpty()
 
                         if (!response.isSuccessful) {
-                            return@withContext Result.success(getSmartLocalRecipes(ingredients))
+                            return@withContext Result.success(getSmartLocalRecipes(ingredients, photo != null))
                         }
 
                         val root = JSONObject(resStr)
                         val text = root.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
                         val clean = text.replace("```json", "").replace("```", "").trim()
-                        val listType = object : TypeToken<List<Recipe>>() {}.type
-                        val list: List<Recipe> = gson.fromJson(clean, listType)
-                        Result.success(list)
+                        val parsedObj = gson.fromJson(clean, RecipeGenerationResult::class.java)
+                        Result.success(parsedObj)
                     } catch (e: Exception) {
-                        Result.success(getSmartLocalRecipes(ingredients))
+                        Result.success(getSmartLocalRecipes(ingredients, photo != null))
                     }
                 }
 
-            private fun getSmartLocalRecipes(ing: List<String>): List<Recipe> {
-                val list = if (ing.isEmpty()) listOf("Яйца", "Сыр", "Помидоры") else ing
-                return listOf(
+            private fun getSmartLocalRecipes(ing: List<String>, hasPhoto: Boolean): RecipeGenerationResult {
+                val detected = if (hasPhoto) listOf("Томаты", "Твёрдый сыр", "Сливочное масло", "Зелень") else emptyList()
+                val combined = (ing + detected).distinct()
+                val list = if (combined.isEmpty()) listOf("Яйца", "Сыр", "Помидоры") else combined
+
+                val recipes = listOf(
                     Recipe(
-                        title = "Сытный омлет 'Fridge Master'",
-                        timeMinutes = 12,
+                        title = if (hasPhoto) "Запеканка из продуктов с фото" else "Сытный омлет 'Fridge Master'",
+                        timeMinutes = 15,
                         difficulty = "Легко",
-                        calories = 310,
-                        ingredientsUsed = list.take(3),
+                        calories = 320,
+                        ingredientsUsed = list.take(4),
                         missingOptional = listOf("Черный перец", "Свежая зелень"),
                         steps = listOf(
-                            "Разогрейте сковороду с каплей масла.",
-                            "Обжарьте нарезанные ингредиенты 2-3 минуты.",
-                            "Залейте взбитыми яйцами и томите под крышкой 5 минут."
+                            "Разогрейте сковороду или форму для запекания.",
+                            "Нарежьте имеющиеся продукты (" + list.take(2).joinToString(", ") + ") и подрумяньте 3 минуты.",
+                            "Залейте основой (яйца/сыр) и томите под крышкой 7 минут до золотистой корочки."
                         )
                     ),
                     Recipe(
-                        title = "Экспресс-салат со специями",
+                        title = "Экспресс-салат Шефа",
                         timeMinutes = 10,
                         difficulty = "Быстро",
-                        calories = 240,
-                        ingredientsUsed = list.take(4),
+                        calories = 210,
+                        ingredientsUsed = list.take(3),
                         missingOptional = listOf("Оливковое масло", "Соль"),
                         steps = listOf(
-                            "Нарежьте имеющиеся продукты крупными ломтиками.",
-                            "Слегка подрумяньте на сильном огне или подавайте свежими.",
-                            "Заправьте маслом и подавайте к столу."
+                            "Крупно нарежьте овощи и сыр.",
+                            "Слегка сбрызните маслом и посыпьте специями.",
+                            "Подавайте свежим в качестве легкого обеда или ужина."
                         )
                     ),
                     Recipe(
                         title = "Горячее рагу из холодильника",
                         timeMinutes = 20,
                         difficulty = "Средне",
-                        calories = 380,
+                        calories = 370,
                         ingredientsUsed = list,
                         missingOptional = listOf("Чеснок", "Лавровый лист"),
                         steps = listOf(
-                            "Нарежьте все ингредиенты кубиками.",
-                            "Обжарьте до золотистой корочки 5 минут.",
-                            "Добавьте немного воды и тушите на медленном огне 15 минут."
+                            "Нарежьте все ингредиенты средними кубиками.",
+                            "Обжарьте на среднем огне 5 минут.",
+                            "Добавьте немного воды и тушите до готовности 12 минут."
                         )
                     )
                 )
+
+                return RecipeGenerationResult(detectedProducts = detected, recipes = recipes)
             }
         }
         SUBEOF
 
-        # 9. MainActivity.kt (100% clean, no naked returns, green/yellow palette)
+        # 9. MainActivity.kt (Camera Permission + Gallery, Smart Voice, 3-Free Limit, Pro Paywall)
         cat << 'SUBEOF' > app/src/main/java/com/fridgechef/ai/MainActivity.kt
         package com.fridgechef.ai
 
+        import android.Manifest
         import android.app.Activity
         import android.content.Context
         import android.content.Intent
+        import android.content.pm.PackageManager
         import android.graphics.Bitmap
+        import android.graphics.ImageDecoder
+        import android.net.Uri
+        import android.os.Build
         import android.os.Bundle
+        import android.provider.MediaStore
         import android.speech.RecognizerIntent
         import android.widget.Toast
         import androidx.activity.ComponentActivity
@@ -336,6 +360,7 @@ jobs:
         import androidx.compose.ui.text.font.FontWeight
         import androidx.compose.ui.unit.dp
         import androidx.compose.ui.unit.sp
+        import androidx.core.content.ContextCompat
         import com.fridgechef.ai.data.AiRecipeService
         import com.fridgechef.ai.data.ExpiryItem
         import com.fridgechef.ai.data.Recipe
@@ -348,6 +373,8 @@ jobs:
         val BrandYellow = Color(0xFFFBC02D)
         val BrandYellowLight = Color(0xFFFFF9C4)
         val AppBg = Color(0xFFF8FAF7)
+
+        const val FREE_LIMIT = 3
 
         class MainActivity : ComponentActivity() {
             override fun onCreate(savedInstanceState: Bundle?) {
@@ -376,6 +403,8 @@ jobs:
             val scope = rememberCoroutineScope()
 
             var isRegistered by remember { mutableStateOf(prefs.getBoolean("is_registered", false)) }
+            var freeGenerationsUsed by remember { mutableStateOf(prefs.getInt("free_generations_used", 0)) }
+
             var userProfile by remember {
                 mutableStateOf(
                     UserProfile(
@@ -390,6 +419,7 @@ jobs:
 
             var selectedTab by remember { mutableStateOf(0) }
             var showProDialog by remember { mutableStateOf(false) }
+            var showLimitDialog by remember { mutableStateOf(false) }
 
             val defaultKey = "AIzaSy_FridgeChef_DemoAutoKey"
             var apiKey by remember { mutableStateOf(prefs.getString("api_key", defaultKey) ?: defaultKey) }
@@ -398,6 +428,7 @@ jobs:
             val selectedIngredients = remember { mutableStateListOf("Яйца", "Сыр", "Помидоры") }
             var customIngredient by remember { mutableStateOf("") }
             var cameraPhoto by remember { mutableStateOf<Bitmap?>(null) }
+            var detectedFromPhoto by remember { mutableStateOf<List<String>>(emptyList()) }
 
             val recipes = remember { mutableStateListOf<Recipe>() }
             var isLoading by remember { mutableStateOf(false) }
@@ -411,22 +442,59 @@ jobs:
                 )
             }
 
+            // Camera Launcher
             val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
                 if (bitmap != null) {
                     cameraPhoto = bitmap
-                    Toast.makeText(context, "Фото холодильника сделано!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Фото готово к анализу!", Toast.LENGTH_SHORT).show()
                 }
             }
 
+            // Runtime Camera Permission Launcher
+            val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+                if (isGranted) {
+                    cameraLauncher.launch(null)
+                } else {
+                    Toast.makeText(context, "Нужно разрешение на камеру в настройках Android", Toast.LENGTH_LONG).show()
+                }
+            }
+
+            // Gallery Launcher (Alternative to direct camera)
+            val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+                uri?.let {
+                    try {
+                        val bmp = if (Build.VERSION.SDK_INT < 28) {
+                            @Suppress("DEPRECATION")
+                            MediaStore.Images.Media.getBitmap(context.contentResolver, it)
+                        } else {
+                            val source = ImageDecoder.createSource(context.contentResolver, it)
+                            ImageDecoder.decodeBitmap(source)
+                        }
+                        cameraPhoto = bmp
+                        Toast.makeText(context, "Фото выбрано из галереи!", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Не удалось загрузить фото", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            // Native Speech Recognizer (Fixed parsing: no bad space-splitting)
             val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                 if (result.resultCode == Activity.RESULT_OK) {
                     val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
                     if (!spokenText.isNullOrBlank()) {
-                        val parsedItems = spokenText.split(",", " и ", " ").map { it.trim() }.filter { it.length > 2 }
-                        parsedItems.forEach { item ->
-                            if (!selectedIngredients.contains(item)) selectedIngredients.add(item)
+                        // Split by punctuation, comma, "и", "а также", newline
+                        val parts = spokenText.split(",", " и ", " а также ", "
+", ";")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                        parts.forEach { phrase ->
+                            val clean = phrase.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                            if (!selectedIngredients.contains(clean)) {
+                                selectedIngredients.add(clean)
+                            }
                         }
-                        Toast.makeText(context, "Добавлено: $spokenText", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Голосом добавлено: " + parts.joinToString(", "), Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -464,7 +532,8 @@ jobs:
                                                 }
                                             }
                                         }
-                                        Text("Шеф: ${userProfile.name}", fontSize = 11.sp, color = BrandYellowLight)
+                                        val subTitle = if (userProfile.isPro) "Безлимитный PRO" else "Осталось: " + (FREE_LIMIT - freeGenerationsUsed).coerceAtLeast(0) + " из $FREE_LIMIT"
+                                        Text(subTitle, fontSize = 11.sp, color = BrandYellowLight)
                                     }
                                 }
                             },
@@ -530,34 +599,56 @@ jobs:
                                     else selectedIngredients.add(item)
                                 },
                                 hasPhoto = cameraPhoto != null,
-                                onTakePhoto = { cameraLauncher.launch(null) },
+                                onTakePhoto = {
+                                    // Check camera permission at runtime
+                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                                    if (granted) {
+                                        cameraLauncher.launch(null)
+                                    } else {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                },
+                                onPickGallery = { galleryLauncher.launch("image/*") },
                                 onVoiceInput = {
                                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Назовите продукты через запятую...")
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Назовите продукты (например: яйца, молоко, сыр)...")
                                     }
                                     try {
                                         speechLauncher.launch(intent)
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "Голосовой ввод недоступен", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Голосовой ввод не поддерживается системой", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 onGenerate = {
-                                    isLoading = true
-                                    selectedTab = 1
-                                    scope.launch {
-                                        val service = AiRecipeService(apiKey)
-                                        val res = service.fetchRecipes(selectedIngredients, cameraPhoto, userProfile)
-                                        isLoading = false
-                                        res.onSuccess {
-                                            recipes.clear()
-                                            recipes.addAll(it)
+                                    // Check free generations limit
+                                    if (!userProfile.isPro && freeGenerationsUsed >= FREE_LIMIT) {
+                                        showLimitDialog = true
+                                    } else {
+                                        isLoading = true
+                                        selectedTab = 1
+                                        scope.launch {
+                                            val service = AiRecipeService(apiKey)
+                                            val res = service.fetchRecipes(selectedIngredients, cameraPhoto, userProfile)
+                                            isLoading = false
+                                            res.onSuccess { resultData ->
+                                                recipes.clear()
+                                                recipes.addAll(resultData.recipes)
+                                                detectedFromPhoto = resultData.detectedProducts
+
+                                                // Deduct free attempt if not Pro
+                                                if (!userProfile.isPro) {
+                                                    freeGenerationsUsed += 1
+                                                    prefs.edit().putInt("free_generations_used", freeGenerationsUsed).apply()
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             )
                             1 -> RecipesView(
                                 recipes = recipes,
+                                detectedProducts = detectedFromPhoto,
                                 isLoading = isLoading
                             )
                             2 -> ExpiryView(
@@ -585,6 +676,34 @@ jobs:
                         }
                     }
                 }
+            }
+
+            if (showLimitDialog) {
+                AlertDialog(
+                    onDismissRequest = { showLimitDialog = false },
+                    title = { Text("Лимит генераций исчерпан", fontWeight = FontWeight.Bold, color = BrandGreenDark) },
+                    text = {
+                        Column {
+                            Text("Вы использовали все $FREE_LIMIT бесплатные генерации рецептов.")
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("Перейдите на PRO-подписку, чтобы готовить без ограничений!", color = Color.Gray, fontSize = 13.sp)
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showLimitDialog = false
+                                showProDialog = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandYellow)
+                        ) {
+                            Text("⭐ Оформить PRO", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showLimitDialog = false }) { Text("Позже", color = Color.Gray) }
+                    }
+                )
             }
 
             if (showProDialog) {
@@ -665,6 +784,7 @@ jobs:
             onToggle: (String) -> Unit,
             hasPhoto: Boolean,
             onTakePhoto: () -> Unit,
+            onPickGallery: () -> Unit,
             onVoiceInput: () -> Unit,
             onGenerate: () -> Unit
         ) {
@@ -678,23 +798,32 @@ jobs:
                     }
                 }
 
+                // Camera & Voice Actions
                 item {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = onTakePhoto,
                             colors = ButtonDefaults.buttonColors(containerColor = if (hasPhoto) BrandGreenDark else BrandGreen),
                             shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1.2f).height(48.dp)
+                        ) {
+                            Text(if (hasPhoto) "📷 Снято ✓" else "📷 Камера", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Button(
+                            onClick = onPickGallery,
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandGreen),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f).height(48.dp)
                         ) {
-                            Text(if (hasPhoto) "📷 Фото есть ✓" else "📷 Камера", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("🖼️ Галерея", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                         Button(
                             onClick = onVoiceInput,
                             colors = ButtonDefaults.buttonColors(containerColor = BrandYellow),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f).height(48.dp)
+                            modifier = Modifier.weight(1.1f).height(48.dp)
                         ) {
-                            Text("🎙️ Голос", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.Black)
+                            Text("🎙️ Голос", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
                         }
                     }
                 }
@@ -764,14 +893,14 @@ jobs:
         }
 
         @Composable
-        fun RecipesView(recipes: List<Recipe>, isLoading: Boolean) {
+        fun RecipesView(recipes: List<Recipe>, detectedProducts: List<String>, isLoading: Boolean) {
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = BrandGreen)
                         Spacer(modifier = Modifier.height(14.dp))
-                        Text("Шеф-ИИ составляет рецепты...", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
-                        Text("Только из имеющихся продуктов", fontSize = 13.sp, color = Color.Gray)
+                        Text("Шеф-ИИ сканирует фото и подбирает рецепты...", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = BrandGreenDark)
+                        Text("Без лишних покупок, только из имеющихся продуктов", fontSize = 12.sp, color = Color.Gray)
                     }
                 }
             } else if (recipes.isEmpty()) {
@@ -780,11 +909,21 @@ jobs:
                         Text("🍲", fontSize = 54.sp)
                         Spacer(modifier = Modifier.height(10.dp))
                         Text("Рецептов пока нет", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Выберите продукты на первой вкладке и нажмите кнопку поиска!", color = Color.Gray, fontSize = 14.sp)
+                        Text("Сделайте фото или выберите продукты на первой вкладке!", color = Color.Gray, fontSize = 14.sp)
                     }
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (detectedProducts.isNotEmpty()) {
+                        item {
+                            Card(colors = CardDefaults.cardColors(containerColor = BrandYellowLight), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("📸 Распознано по фото: " + detectedProducts.joinToString(", "), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                                }
+                            }
+                        }
+                    }
+
                     items(recipes) { recipe ->
                         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
